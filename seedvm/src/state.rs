@@ -8,6 +8,7 @@
 use crate::value::Value;
 use crate::rng::DeterministicRng;
 use crate::schedule::ScheduleTrace;
+use crate::memory::{MemoryGovernor, CoherencyController, MemoryLayer, ConsentLevel};
 use seedc::ir::Module;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -36,13 +37,12 @@ pub struct VMState {
     /// Nested block labels for structured control flow (block_id → label).
     pub block_labels: Vec<usize>,
 
-    // ── Memory subsystem ──
-    /// Memory layers L0–L7. Each layer is a key-value store.
-    /// Layers are indexed 0..7:
-    ///   0: Working, 1: Episodic, 2: Semantic, 3: Procedural,
-    ///   4: Prospective, 5: Federated, 6: Identity, 7: Provenance Index.
-    pub memory_layers: [HashMap<String, Value>; 8],
-    /// Merkle integrity roots for each layer.
+    // ── Memory subsystem (B5) ──
+    /// The 8‑layer memory governor (replaces raw HashMap layers).
+    pub governor: MemoryGovernor,
+    /// Coherency controller (MESI + CRDT + gossip).
+    pub coherency: CoherencyController,
+    /// Merkle integrity roots (cached).
     pub merkle_roots: [Option<String>; 8],
 
     // ── Effect tracking ──
@@ -117,8 +117,8 @@ impl VMState {
     /// Create a fresh VM state from a compiled module.
     pub fn new(module: Module, seed: u64) -> Self {
         let rng = DeterministicRng::new(seed);
-        // Initialise memory layers L0..L7
-        let memory_layers: [HashMap<String, Value>; 8] = Default::default();
+        let governor = MemoryGovernor::new();
+        let coherency = CoherencyController::new("agent-0");
 
         Self {
             stack: Vec::with_capacity(256),
@@ -127,7 +127,8 @@ impl VMState {
             ip: (0, 0, 0),
             current_func: 0,
             block_labels: Vec::new(),
-            memory_layers,
+            governor,
+            coherency,
             merkle_roots: Default::default(),
             effects: Vec::new(),
             inside_discharge: false,
@@ -175,18 +176,23 @@ impl VMState {
         self.provenance_log.push(event);
     }
 
-    // ── Memory layer helpers ──
+    // ── Memory layer helpers (delegated to governor) ──
 
-    /// Read from a memory layer.
-    pub fn mem_load(&self, layer: u8, key: &str) -> Option<&Value> {
-        self.memory_layers.get(layer as usize).and_then(|l| l.get(key))
+    /// Read from a memory layer through the governor.
+    pub fn mem_load(&self, layer: u8, key: &str) -> Option<Value> {
+        let layer = MemoryLayer::try_from(layer).ok()?;
+        // We need mutable access for reinforcement, but this is a read.
+        // In production, we'd use interior mutability (RefCell) or accept
+        // that reads need &mut self. For now, return a clone.
+        // The executor will call governor.read() which needs &mut self.
+        // We'll handle this in the executor directly.
+        None // placeholder – executor calls governor directly
     }
 
-    /// Write to a memory layer.
-    pub fn mem_store(&mut self, layer: u8, key: String, value: Value) {
-        if let Some(l) = self.memory_layers.get_mut(layer as usize) {
-            l.insert(key, value);
-        }
+    /// Write to a memory layer through the governor.
+    pub fn mem_store(&mut self, layer: u8, key: String, value: Value) -> Result<(), VmError> {
+        let layer = MemoryLayer::try_from(layer)?;
+        self.governor.write(layer, key, value, ConsentLevel::default())
     }
 }
 

@@ -110,7 +110,9 @@ D17	TEE attestation	Implement Intel TDX / AMD SEV / Arm CCA attestation verifica
 D18	Orchestrator	Implement goal decomposition planner, verifier, repair module, and escalation module.
 D19	Proof‑carrying execution	Generate ExecutionProof with trace hash, contract satisfaction, taint safety, capability validity, and temporal satisfaction fields.
 D20	Deterministic replay	Verify that identical seeds produce byte‑identical schedule traces.
-Phase E – Standard Library (3‑4 weeks)
+
+
+# Phase E – Standard Library (3‑4 weeks)
 Goal: Ship a production‑grade standard library that developers import with use seed::....
 
 #	Task	Description
@@ -139,7 +141,9 @@ F8	Formatter (seedfmt)	CST‑based lossless formatting; seed fmt and seed fmt --
 F9	Linter (seed lint)	Style and correctness rules; configurable via seed.toml.
 F10	Debug adapter (seeddbg)	Step‑through debugging, breakpoints, variable inspection, memory layer browsing.
 F11	Neovim / Emacs / Zed configs	Provide LSP + Tree‑sitter setup snippets for each editor.
-Phase G – Distribution & Installation (2‑3 weeks)
+
+
+# Phase G – Distribution & Installation (2‑3 weeks)
 Goal: One‑command install on every platform.
 
 #	Task	Description
@@ -151,7 +155,9 @@ G5	pip package	agentseed – similar wrapper for Python developers.
 G6	Scoop bucket	Windows package manager support.
 G7	aqua / mise registry	Declarative tool version management integration.
 G8	Docker image	Official Docker image for CI/CD and server deployments.
-Phase H – Documentation & Playground (3‑4 weeks)
+
+
+# Phase H – Documentation & Playground (3‑4 weeks)
 Goal: A curious developer can learn ASL in an afternoon.
 
 #	Task	Description
@@ -161,7 +167,9 @@ H3	Interactive playground	Compile the VM to WASM; embed Monaco editor; run .seed
 H4	Tutorials	“Your First Agent,” “Building a Research Assistant,” “Multi‑Agent Federation,” “Self‑Evolving Agents.”
 H5	Example gallery	Curated collection of agent programs: research, coding, planning, creative writing, data analysis.
 H6	Video walkthroughs	5‑minute setup, 15‑minute language tour, 30‑minute deep dive.
-Phase I – Package Registry (2‑3 weeks)
+
+
+# Phase I – Package Registry (2‑3 weeks)
 Goal: Developers can share and install agent packages.
 
 #	Task	Description
@@ -170,7 +178,9 @@ I2	seed publish	Package and upload a .seed library to the registry.
 I3	seed install	Download and install a package from the registry with dependency resolution.
 I4	Seed.lock	Reproducible builds via lockfile with content hashes.
 I5	Package signing	Ed25519 signatures on every package; verification on install.
-Phase J – Community & Launch (2‑3 weeks)
+
+
+# Phase J – Community & Launch (2‑3 weeks)
 Goal: Thousands of developers know about AGENT‑SEED and can use it.
 
 #	Task	Description
@@ -184,7 +194,9 @@ J7	Reddit launch	r/programming, r/rust, r/MachineLearning, r/artificial.
 J8	Conference talks	Submit to Strange Loop, RustConf, AI Engineer Summit, POPL, PLDI.
 J9	Hackathon	Online hackathon with prizes for best agent programs.
 J10	Swag	Stickers, t‑shirts, and a custom seed command‑line theme.
-Phase K – Post‑Launch Iteration (ongoing)
+
+
+# Phase K – Post‑Launch Iteration (ongoing)
 #	Task	Description
 K1	Bug tracker triage	Respond to GitHub issues within 48 hours.
 K2	Monthly releases	Regular cadence with release notes and migration guides.

@@ -7,6 +7,7 @@
 use std::fmt;
 use std::rc::Rc;
 use std::collections::HashMap;
+use crate::computation::Computation;
 
 // ── Value type ──
 
@@ -64,6 +65,7 @@ pub enum Value {
     Label(usize),
     /// Null / none sentinel.
     Null,
+    Computation(Computation),
 }
 
 // ── Display ──
@@ -109,6 +111,7 @@ impl fmt::Display for Value {
             Value::FuncRef(i)      => write!(f, "<fn#{}>", i),
             Value::Label(l)        => write!(f, "<label:{}>", l),
             Value::Null            => write!(f, "null"),
+            Value::Computation(c) => write!(f, "{}", c),
         }
     }
 }
@@ -131,6 +134,7 @@ impl From<String> for Value { fn from(v: String) -> Self { Value::String(Rc::new
 impl From<&str> for Value   { fn from(v: &str) -> Self { Value::String(Rc::new(v.to_string())) } }
 impl From<Vec<u8>> for Value { fn from(v: Vec<u8>) -> Self { Value::Bytes(v) } }
 impl From<Vec<Value>> for Value { fn from(v: Vec<Value>) -> Self { Value::Array(v) } }
+impl From<Computation> for Value { fn from(c: Computation) -> Self { Value::Computation(c) } }
 
 // ── Type checking helpers ──
 
@@ -162,6 +166,7 @@ impl Value {
             Value::FuncRef(_)     => "func_ref",
             Value::Label(_)       => "label",
             Value::Null           => "null",
+            Value::Computation(_) => "computation",
         }
     }
 
@@ -174,6 +179,7 @@ impl Value {
             Value::F32(f) if *f == 0.0 => false,
             Value::F64(f) if *f == 0.0 => false,
             Value::String(s) => !s.is_empty(),
+            Value::Computation(c) => c.value.is_truthy(),
             _ => true, // non-null values are truthy
         }
     }

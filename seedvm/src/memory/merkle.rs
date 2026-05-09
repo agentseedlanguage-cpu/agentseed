@@ -18,7 +18,7 @@ struct MerkleNode {
 }
 
 /// Merkle integrity manager — one root per memory layer.
-pub struct MerkleIntegrityManager {
+#[derive(Debug)] pub struct MerkleIntegrityManager {
     /// The current leaves (content hashes) per layer, in insertion order.
     leaves: [Vec<(String, u64)>; 8],
     /// Cached Merkle roots per layer.

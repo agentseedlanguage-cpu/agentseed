@@ -6,7 +6,9 @@
 //! pipeline, federation, and corrigibility operations.
 
 use crate::value::Value;
+use crate::computation::Computation;
 use crate::state::{VMState, VmError, VmResult, ProvenanceEventKind};
+use crate::memory::{MemoryLayer, ConsentLevel};
 use seedc::ir::{Opcode, Operand, Terminator};
 
 const MAX_STACK: usize = 4096;
@@ -14,12 +16,22 @@ const MAX_STACK: usize = 4096;
 pub struct VM {
     pub state: VMState,
     pub trace_execution: bool,
+    /// Thresholds for discharge (tunable later). For now, zero allows all.
+    pub confidence_threshold: f64,
+    pub taint_threshold: f64,
+    pub budget_remaining: u64,
 }
 
 impl VM {
     pub fn new(module: seedc::ir::Module, seed: u64) -> Self {
         let state = VMState::new(module, seed);
-        Self { state, trace_execution: false }
+        Self {
+            state,
+            trace_execution: false,
+            confidence_threshold: 0.0,
+            taint_threshold: 1.0,
+            budget_remaining: u64::MAX,
+        }
     }
 
     pub fn run(&mut self) -> VmResult<()> {
@@ -127,24 +139,60 @@ impl VM {
             }
             Opcode::Return => { /* handled by terminator */ }
 
-            // ── Memory layers ──
+            // ── Memory layers (B5: routed through governor) ──
             Opcode::MemLoad => {
                 let key = self.resolve_key(&instr.operands[1])?;
-                let layer = self.resolve_operand(&instr.operands[0])? as u8;
-                let val = self.state.mem_load(layer, &key).cloned().unwrap_or(Value::Null);
+                let layer_raw = self.resolve_operand(&instr.operands[0])? as u8;
+                let layer = MemoryLayer::try_from(layer_raw)
+                    .map_err(|_| VmError::InvalidMemoryLayer { layer: layer_raw })?;
+
+                let entry = self.state.governor.read(layer, &key, ConsentLevel::default())?;
+                let val = entry.map(|e| e.value.clone()).unwrap_or(Value::Null);
                 self.state.push(val);
-                self.state.provenance(ProvenanceEventKind::MemoryRead, format!("L{}:{}", layer, key));
+                self.state.provenance(ProvenanceEventKind::MemoryRead,
+                    format!("L{:?}:{}", layer, key));
             }
             Opcode::MemStore => {
                 let val = self.state.pop()?;
                 let key = self.resolve_key(&instr.operands[1])?;
-                let layer = self.resolve_operand(&instr.operands[0])? as u8;
-                self.state.mem_store(layer, key.clone(), val);
-                self.state.provenance(ProvenanceEventKind::MemoryWrite, format!("L{}:{}", layer, key));
+                let layer_raw = self.resolve_operand(&instr.operands[0])? as u8;
+                let layer = MemoryLayer::try_from(layer_raw)
+                    .map_err(|_| VmError::InvalidMemoryLayer { layer: layer_raw })?;
+
+                self.state.governor.write(layer, key.clone(), val, ConsentLevel::default())?;
+                self.state.push(Value::Unit);
+                self.state.provenance(ProvenanceEventKind::MemoryWrite,
+                    format!("L{:?}:{}", layer, key));
             }
-            Opcode::MemQuery => { self.state.push(Value::Null); }
-            Opcode::MemPromote => { self.state.push(Value::Null); }
-            Opcode::MemDecay => { self.state.push(Value::Null); }
+            Opcode::MemQuery => {
+                let key = self.resolve_key(&instr.operands[1])?;
+                let layer_raw = self.resolve_operand(&instr.operands[0])? as u8;
+                let layer = MemoryLayer::try_from(layer_raw)
+                    .map_err(|_| VmError::InvalidMemoryLayer { layer: layer_raw })?;
+
+                let entry = self.state.governor.read(layer, &key, ConsentLevel::default())?;
+                let weight = entry.map(|e| Value::F64(e.weight)).unwrap_or(Value::F64(0.0));
+                self.state.push(weight);
+            }
+            Opcode::MemPromote => {
+                let key = self.resolve_key(&instr.operands[1])?;
+                let layer_raw = self.resolve_operand(&instr.operands[0])? as u8;
+                let layer = MemoryLayer::try_from(layer_raw)
+                    .map_err(|_| VmError::InvalidMemoryLayer { layer: layer_raw })?;
+
+                // Read and reinforce
+                let _ = self.state.governor.read(layer, &key, ConsentLevel::default())?;
+                self.state.push(Value::Unit);
+            }
+            Opcode::MemDecay => {
+                let layer_raw = self.resolve_operand(&instr.operands[0])? as u8;
+                let half_life = self.resolve_f64(&instr.operands[1])?;
+                let layer = MemoryLayer::try_from(layer_raw)
+                    .map_err(|_| VmError::InvalidMemoryLayer { layer: layer_raw })?;
+
+                self.state.governor.decay_layer(layer, half_life);
+                self.state.push(Value::Unit);
+            }
 
             // ── Agent operations ──
             Opcode::AgentSpawn => {
@@ -161,12 +209,24 @@ impl VM {
             }
             Opcode::AgentRecv => { self.state.push(Value::Null); }
 
-            // ── Effects ──
+            // ── Effects (v15.2: Computation‑aware Discharge/Perform) ──
             Opcode::Discharge => {
-                let _scrutinee = self.state.pop()?;
+                let v = self.state.pop()?;
+                if let Value::Computation(comp) = v {
+                    comp.check_thresholds(
+                        self.confidence_threshold,
+                        self.taint_threshold,
+                        self.budget_remaining,
+                    )?;
+                    let inner = comp.into_value();
+                    self.state.provenance(ProvenanceEventKind::DischargeExited,
+                        format!("discharged {}", Value::Computation(Computation::pure(inner.clone()))));
+                    self.state.push(inner);
+                } else {
+                    self.state.push(v);
+                }
                 self.state.inside_discharge = true;
                 self.state.provenance(ProvenanceEventKind::DischargeEntered, "entered discharge");
-                self.state.push(Value::Unit);
             }
             Opcode::Perform => {
                 if !self.state.inside_discharge {
@@ -180,8 +240,13 @@ impl VM {
             }
 
             // ── Uncertainty ──
-            Opcode::Infer => { self.state.push(Value::F64(0.5)); }
-            Opcode::Observe => { self.state.push(Value::F64(0.5)); }
+            Opcode::Infer => {
+                let comp = Computation::uncertain(Value::F64(0.5), 0.5, 0.8);
+                self.state.push(Value::Computation(comp));
+            }
+            Opcode::Observe => {
+                self.state.push(Value::Computation(Computation::pure(Value::Unit)));
+            }
 
             // ── Heartbeat ──
             Opcode::HeartbeatTick => { self.state.push(Value::U64(self.state.rng.draw_count)); }
@@ -198,19 +263,26 @@ impl VM {
             // ── Confidence ──
             Opcode::ConfidenceGate => {
                 let threshold = self.resolve_f64(&instr.operands[0])?;
-                let confidence = self.state.pop()?;
-                let c = self.value_to_f64(&confidence)?;
-                if c < threshold {
-                    return Err(VmError::LowConfidence { actual: c, threshold });
+                let v = self.state.pop()?;
+                let (value, hi) = match v {
+                    Value::Computation(ref comp) => ((*comp.value).clone(), comp.uncertainty_hi),
+                    ref other => (other.clone(), 1.0),
+                };
+                if hi < threshold {
+                    return Err(VmError::LowConfidence { actual: hi, threshold });
                 }
-                self.state.push(confidence);
+                self.state.push(value);
             }
             Opcode::ConfidenceAsk => {
-                let result = self.state.pop().unwrap_or(Value::Null);
-                let confidence = self.state.rng.next_f64();
-                self.state.push(Value::F64(confidence));
-                self.state.push(result);
-                self.state.provenance(ProvenanceEventKind::InferCalled, format!("conf={:.3}", confidence));
+                let v = self.state.pop().unwrap_or(Value::Null);
+                let (lo, hi) = match &v {
+                    Value::Computation(comp) => (comp.uncertainty_lo, comp.uncertainty_hi),
+                    _ => (1.0, 1.0),
+                };
+                self.state.push(Value::F64(lo));
+                self.state.push(Value::F64(hi));
+                self.state.push(v);
+                self.state.provenance(ProvenanceEventKind::InferCalled, format!("conf=[{:.2},{:.2}]", lo, hi));
             }
 
             // ── Capability ──
@@ -313,6 +385,7 @@ impl VM {
         Ok(())
     }
 
+    // ── Operand resolvers (unchanged) ──
     fn resolve_operand(&self, op: &Operand) -> VmResult<i64> {
         match op {
             Operand::Int(v)   => Ok(*v),
@@ -487,5 +560,48 @@ mod tests {
         let mut vm = VM::new(module, 42);
         let result = vm.run();
         assert!(result.is_err(), "Perform without Discharge should fail");
+    }
+
+    #[test]
+    fn test_memory_store_and_load() {
+        let mut module = seedc::ir::Module::new();
+        let mut func = Function::new("test".into(), vec![], IrType::I64);
+        let blk = func.entry;
+        // MemStore layer=0, key=0, value=42
+        func.push_instr(blk, Instr::new(Opcode::Const, None, vec![Operand::Int(42)]));
+        func.push_instr(blk, Instr::new(Opcode::MemStore, None, vec![Operand::Int(0), Operand::String(0)]));
+        // MemLoad layer=0, key=0
+        func.push_instr(blk, Instr::new(Opcode::MemLoad, None, vec![Operand::Int(0), Operand::String(0)]));
+        func.set_terminator(blk, Terminator::Halt);
+        module.add_function(func);
+        let mut vm = VM::new(module, 42);
+        vm.run().unwrap();
+        let result = vm.state.pop().unwrap();
+        assert_eq!(result, Value::I64(42), "Memory load should return stored value");
+    }
+
+    #[test]
+    fn test_memory_decay_and_query() {
+        let mut module = seedc::ir::Module::new();
+        let mut func = Function::new("test".into(), vec![], IrType::I64);
+        let blk = func.entry;
+        // Store value
+        func.push_instr(blk, Instr::new(Opcode::Const, None, vec![Operand::Int(99)]));
+        func.push_instr(blk, Instr::new(Opcode::MemStore, None, vec![Operand::Int(0), Operand::String(1)]));
+        // Apply strong decay (half_life=0.1)
+        func.push_instr(blk, Instr::new(Opcode::Const, None, vec![Operand::Float(0.1)]));
+        func.push_instr(blk, Instr::new(Opcode::MemDecay, None, vec![Operand::Int(0), Operand::Float(0.1)]));
+        // Query weight
+        func.push_instr(blk, Instr::new(Opcode::MemQuery, None, vec![Operand::Int(0), Operand::String(1)]));
+        func.set_terminator(blk, Terminator::Halt);
+        module.add_function(func);
+        let mut vm = VM::new(module, 42);
+        vm.run().unwrap();
+        let weight = vm.state.pop().unwrap();
+        // After strong decay, weight should be < 1.0
+        match weight {
+            Value::F64(w) => assert!(w < 1.0, "Weight should decay below 1.0, got {}", w),
+            _ => panic!("Expected F64 weight"),
+        }
     }
 }

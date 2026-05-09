@@ -13,7 +13,7 @@ use crate::state::VmError;
 use std::collections::HashMap;
 
 /// The tri‑path memory governor.
-pub struct MemoryGovernor {
+#[derive(Debug)] pub struct MemoryGovernor {
     /// Per‑layer stores.
     pub layers: [super::layer::LayerStore; 8],
     /// Merkle integrity manager for hash‑chaining writes.
@@ -84,7 +84,7 @@ impl MemoryGovernor {
     ///   - Compute a blake3 content hash for anti‑echo.
     ///   - Reject if the same content hash already exists in the anti‑echo set.
     ///   - Update Merkle root for the layer.
-    pub fn write(
+        pub fn write(
         &mut self,
         layer: MemoryLayer,
         key: impl Into<String>,
@@ -96,21 +96,16 @@ impl MemoryGovernor {
         let mut entry = MemoryEntry::new(key.clone(), value, now);
         entry.consent = consent;
 
-        // Compute content hash for anti‑echo
         let content = format!("{:?}:{}", entry.value, entry.key);
         let hash = blake3::hash(content.as_bytes());
         let hash_hex = hex::encode(hash.as_bytes());
         entry.content_hash = Some(hash_hex.clone());
 
-        // Anti‑echo: reject duplicate content
-        if self.anti_echo.contains_key(&hash_hex) {
-            // Log but don't reject — echo detection is soft
-        }
-        self.anti_echo.insert(hash_hex, ());
-
-        // Write to store and update Merkle root
-        self.layers[layer as usize].insert(entry);
+        // Anti-echo: use clone so we can still use hash_hex for Merkle
+        self.anti_echo.insert(hash_hex.clone(), ());
         self.merkle.update(layer as u8, &hash_hex, now);
+
+        self.layers[layer as usize].insert(entry);
         Ok(())
     }
 
@@ -138,14 +133,15 @@ impl MemoryGovernor {
         let mut to_prune: Vec<String> = Vec::new();
 
         // Apply decay and collect entries below threshold for pruning
-        for entry in self.layers[idx].iter() {
-            if let Some(entry_mut) = self.layers[idx].get_mut(&entry.key) {
+        let entries: Vec<String> = self.layers[idx].iter().map(|e| e.key.clone()).collect();
+        for key_raw in entries {
+            if let Some(entry_mut) = self.layers[idx].get_mut(&key_raw) {
                 entry_mut.apply_decay(now, half_life);
                 if entry_mut.weight < 0.01 && entry_mut.reinforcement_count < 2 {
                     to_prune.push(entry_mut.key.clone());
                 }
             }
-        }
+}
 
         // Prune entries below threshold (only for mutable layers)
         for key in to_prune {

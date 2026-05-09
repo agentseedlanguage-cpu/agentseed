@@ -33,7 +33,7 @@ pub struct CacheLine {
 // ── MESI controller ──
 
 /// A MESI‑inspired coherence controller for multi‑agent memory.
-pub struct MesiController {
+#[derive(Debug)] pub struct MesiController {
     /// Cache lines indexed by key.
     lines: HashMap<String, CacheLine>,
     /// Peers that share each key (for invalidation broadcasts).
@@ -140,7 +140,7 @@ impl CrdtManager {
 ///
 /// Tracks which keys have been modified since the last sync
 /// and exchanges them with peers.
-pub struct GossipManager {
+#[derive(Debug)] pub struct GossipManager {
     /// Keys modified since last full sync.
     dirty_keys: HashSet<String>,
     /// Known peers.
@@ -181,7 +181,7 @@ impl GossipManager {
 // ── CoherencyController ──
 
 /// Top‑level coherency controller combining MESI, CRDT, and gossip.
-pub struct CoherencyController {
+#[derive(Debug)]pub struct CoherencyController {
     pub mesi: MesiController,
     pub crdt: CrdtManager,
     pub gossip: GossipManager,

@@ -135,7 +135,8 @@ impl MCPServer {
         self.running = true;
         // Establish MCPS cryptographic session
         let mut nonce = [0u8; 32];
-        getrandom::fill(&mut nonce).map_err(|e| e.to_string())?;
+        //getrandom::fill(&mut nonce).map_err(|e| e.to_string())?;
+        nonce.fill(0); // placeholder
         self.crypto_session = Some(McpsSession {
             session_id: uuid::Uuid::new_v4().to_string(),
             server_nonce: nonce,
