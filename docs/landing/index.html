@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>ASL – Autonomous Systems Language · Agent Seed</title>
+  <meta name="description" content="ASL (Autonomous Systems Language) is a type‑safe, effect‑tracked language for building safe, corrigible, self‑evolving agents. Powered by the Agent Seed compiler and deterministic VM.">
+  <meta name="keywords" content="ASL, Autonomous Systems Language, Agent Seed, agent safety, type system, effect monad, capability tokens, corrigibility, deterministic VM">
+  <meta name="author" content="Damian Ramsajan">
+  <meta property="og:title" content="ASL – Autonomous Systems Language">
+  <meta property="og:description" content="Build agents that are safe by construction. Type‑safe, effect‑tracked, and verifiable.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://agentseed.org/">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/agentseedlanguage-cpu/agentseed/main/docs/landing/favicon.png">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #0a0f1e;
+      --bg-secondary: #0f172a;
+      --text-primary: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --border: #334155;
+      --card-bg: #1e293b;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    /* Light mode */
+    body.light {
+      --bg-primary: #f8fafc;
+      --bg-secondary: #ffffff;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --border: #e2e8f0;
+      --card-bg: #ffffff;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    /* Dark mode toggle */
+    .theme-toggle {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 40px;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+
+    /* Typography */
+    h1 {
+      font-size: 3.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
+      border-left: 4px solid var(--accent);
+      padding-left: 1rem;
+    }
+
+    .tagline {
+      font-size: 1.3rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+    }
+
+    /* Code blocks */
+    pre {
+      background: var(--bg-secondary);
+      padding: 1.25rem;
+      border-radius: 12px;
+      overflow-x: auto;
+      font-family: 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      margin: 1.5rem 0;
+      border: 1px solid var(--border);
+    }
+
+    code {
+      font-family: 'Fira Code', monospace;
+      background: var(--bg-secondary);
+      padding: 0.2rem 0.4rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+
+    .install-code {
+      background: var(--bg-secondary);
+      border: 1px solid var(--accent);
+      box-shadow: 0 0 15px rgba(59,130,246,0.2);
+    }
+
+    /* Buttons */
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin: 2rem 0;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      border-radius: 40px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 4px 14px 0 rgba(59,130,246,0.4);
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      transform: translateY(-2px);
+    }
+
+    .btn-secondary {
+      background: var(--card-bg);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--border);
+    }
+
+    /* Feature grid */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      margin: 2rem 0;
+    }
+
+    .feature-card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 1.5rem;
+      border: 1px solid var(--border);
+      transition: transform 0.2s;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--accent);
+    }
+
+    .feature-icon {
+      font-size: 2rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .feature-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    /* Accordion for Five Laws */
+    .accordion-item {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+
+    .accordion-header {
+      padding: 1rem 1.5rem;
+      cursor: pointer;
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .accordion-header:hover {
+      background: var(--bg-secondary);
+    }
+
+    .accordion-content {
+      padding: 0 1.5rem 1rem 1.5rem;
+      display: none;
+      border-top: 1px solid var(--border);
+    }
+
+    .accordion-content.active {
+      display: block;
+    }
+
+    /* Resource links */
+    .resource-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .resource-link {
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 0.75rem 1rem;
+      text-align: center;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-weight: 500;
+      border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+
+    .resource-link:hover {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+
+    /* Trust badges */
+    .trust-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--card-bg);
+      padding: 0.5rem 1rem;
+      border-radius: 40px;
+      font-size: 0.9rem;
+      border: 1px solid var(--border);
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 4rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 640px) {
+      h1 { font-size: 2.2rem; }
+      .container { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Hero -->
+    <h1>🧬 ASL · Autonomous Systems Language</h1>
+    <div class="tagline">A type‑safe, effect‑tracked language for building safe, corrigible, self‑evolving agents.<br>Powered by <strong>Agent Seed</strong> – the compiler and deterministic virtual machine.</div>
+
+    <!-- Install & Demo -->
+    <div class="install-code">
+      <pre><code>npm install -g @agentseed/cli</code></pre>
+    </div>
+    <pre><code>$ seed run hello.seed
+Hello, Agent! -- Your first autonomous agent.</code></pre>
+
+    <!-- Primary CTA -->
+    <div class="button-group">
+      <a href="#" class="btn btn-primary" id="quickstartBtn">🚀 Get Started</a>
+      <a href="#" class="btn btn-secondary" id="playgroundBtn">🎮 Try Playground</a>
+      <a href="https://github.com/agentseedlanguage-cpu/agentseed" class="btn btn-secondary">🐙 GitHub</a>
+      <a href="https://discord.gg/agentseed" class="btn btn-secondary">💬 Discord</a>
+    </div>
+
+    <!-- Trust Badges (live from GitHub) -->
+    <div class="button-group" style="margin-top: -1rem;">
+      <span class="trust-badge">⭐ <span id="stars">loading...</span> stars</span>
+      <span class="trust-badge">🧪 253 conformance tests</span>
+      <span class="trust-badge">📦 v<span id="version">0.1.0</span></span>
+      <span class="trust-badge">📄 MIT license</span>
+    </div>
+
+    <!-- Key Features -->
+    <h2>✨ Why ASL?</h2>
+    <div class="feature-grid">
+      <div class="feature-card"><div class="feature-icon">🎭</div><div class="feature-title">Unified Effect Monad</div>Every operation returns `Computation<T, ε>` – uncertainty, taint, cost, capability, provenance.</div>
+      <div class="feature-card"><div class="feature-icon">🔐</div><div class="feature-title">Capability Tokens</div>Ed25519‑signed, attenuable, delegable. Trust lattice ensures composition safety.</div>
+      <div class="feature-card"><div class="feature-icon">⚖️</div><div class="feature-title">Corrigibility Layer</div>Five lexicographic utility heads (U1‑U5) + dead‑man's switch. Always under principal control.</div>
+      <div class="feature-card"><div class="feature-icon">📜</div><div class="feature-title">Merkle‑Proofed Provenance</div>Every action produces a signed record. Deterministic replay for counterfactuals.</div>
+      <div class="feature-card"><div class="feature-icon">🧠</div><div class="feature-title">Typed Inference</div>`infer<T>` derives JSON Schema from struct T. Validation before binding.</div>
+      <div class="feature-card"><div class="feature-icon">📊</div><div class="feature-title">Grammar Stratification</div>S0 (LLM‑friendly) to S3 (kernel). Escalation requires human countersignature.</div>
+    </div>
+
+    <!-- The Five Laws (Accordion) -->
+    <h2>⚖️ The Five Laws of Safe Agency</h2>
+    <div id="laws-accordion">
+      <div class="accordion-item">
+        <div class="accordion-header">I. Epistemic Conservation <span>▼</span></div>
+        <div class="accordion-content">Uncertainty cannot be destroyed — only narrowed by evidence. Every `infer<T>` returns an `Uncertain<T>` with a probability interval [lo, hi]. U1‑U6 axioms enforced by compiler and VM.</div>
+      </div>
+      <div class="accordion-item">
+        <div class="accordion-header">II. Capillary Authority <span>▼</span></div>
+        <div class="accordion-content">Authority flows only through unforgeable, attenuable tokens. The trust of a composed system is the lattice meet of its components. Conjunction safety checked via hypergraph closure.</div>
+      </div>
+      <div class="accordion-item">
+        <div class="accordion-header">III. Homeostatic Control <span>▼</span></div>
+        <div class="accordion-content">Five lexicographic corrigibility heads (deference, switch preservation, truthfulness, low impact, task reward). A control meter and dead‑man's switch enforce safe‑park when principal contact is lost.</div>
+      </div>
+      <div class="accordion-item">
+        <div class="accordion-header">IV. Causal Accountability <span>▼</span></div>
+        <div class="accordion-content">Every state transition is recorded in a Merkle‑proofed provenance DAG. Deterministic replay enables the do‑calculus and counterfactual surgery.</div>
+      </div>
+      <div class="accordion-item">
+        <div class="accordion-header">V. Stratified Expressivity <span>▼</span></div>
+        <div class="accordion-content">Grammar is partitioned into S0 ⊂ S1 ⊂ S2 ⊂ S3. S0 is LLM‑generation‑friendly (~50 productions); S3 is the kernel. Escalation requires human sign‑off and adversarial simulation.</div>
+      </div>
+    </div>
+
+    <!-- Resources -->
+    <h2>📚 Dive Deeper</h2>
+    <div class="resource-grid">
+      <a href="https://agentseed.github.io/book" class="resource-link">📘 Language Book</a>
+      <a href="https://github.com/agentseedlanguage-cpu/agentseed/blob/main/AgentSeedLanguage_V15.md" class="resource-link">📄 Full Spec (v15.2)</a>
+      <a href="https://agentseed.github.io/api" class="resource-link">🔧 API Reference</a>
+      <a href="https://github.com/agentseedlanguage-cpu/agentseed/tree/main/examples" class="resource-link">🎯 Examples</a>
+      <a href="https://github.com/agentseedlanguage-cpu/agentseed/tree/main/tests/conformance" class="resource-link">🧪 Conformance (253 tests)</a>
+      <a href="https://github.com/agentseedlanguage-cpu/agentseed/blob/main/taskListToLaunch.md" class="resource-link">✅ Roadmap</a>
+    </div>
+
+    <!-- Community -->
+    <h2>🌱 Join the Ecosystem</h2>
+    <p>ASL is open source (MIT) and built in the open. Whether you're a developer, researcher, or curious explorer, your voice matters.</p>
+    <div class="button-group">
+      <a href="https://github.com/agentseedlanguage-cpu/agentseed" class="btn btn-secondary">⭐ Star on GitHub</a>
+      <a href="https://discord.gg/agentseed" class="btn btn-secondary">💬 Discord</a>
+      <a href="https://github.com/agentseedlanguage-cpu/agentseed/issues" class="btn btn-secondary">🐛 Report Issue</a>
+      <a href="https://github.com/agentseedlanguage-cpu/agentseed/blob/main/CONTRIBUTING.md" class="btn btn-secondary">🤝 Contribute</a>
+    </div>
+
+    <footer>
+      <p>ASL – Autonomous Systems Language · Agent Seed compiler &amp; VM · v0.1.0<br>
+      Designed and built by Damian Ramsajan · <span id="year"></span> – a foundation for safe, verifiable agency.</p>
+    </footer>
+  </div>
+
+  <!-- Dark mode toggle -->
+  <div class="theme-toggle" id="themeToggle">🌙 Dark</div>
+
+  <script>
+    // Dark mode
+    const toggle = document.getElementById('themeToggle');
+    toggle.addEventListener('click', () => {
+      document.body.classList.toggle('light');
+      toggle.textContent = document.body.classList.contains('light') ? '☀️ Light' : '🌙 Dark';
+    });
+
+    // Accordion
+    document.querySelectorAll('.accordion-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const content = header.nextElementSibling;
+        content.classList.toggle('active');
+        const arrow = header.querySelector('span');
+        if (content.classList.contains('active')) arrow.textContent = '▲';
+        else arrow.textContent = '▼';
+      });
+    });
+    // Open first law by default
+    document.querySelector('.accordion-content').classList.add('active');
+    document.querySelector('.accordion-header span').textContent = '▲';
+
+    // GitHub stars and version (dynamic)
+    fetch('https://api.github.com/repos/agentseedlanguage-cpu/agentseed')
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('stars').textContent = data.stargazers_count || '?';
+        // version from package.json or tag – placeholder
+      })
+      .catch(() => document.getElementById('stars').textContent = '★');
+
+    // Quickstart button – scroll to install or open book
+    document.getElementById('quickstartBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      window.open('https://agentseed.github.io/book/getting-started.html', '_blank');
+    });
+    document.getElementById('playgroundBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      alert('Playground coming soon – compile ASL in your browser!');
+    });
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
