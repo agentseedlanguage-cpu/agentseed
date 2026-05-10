@@ -3,14 +3,14 @@
 //! Pipeline: source → tokens → CST → typed AST → IR → binary.
 //! Diagnostic version: writes the parsed AST to `ast_dump.txt`.
 
-pub mod token;
-pub mod lexer;
 pub mod ast;
+pub mod binary;
+pub mod ir;
+pub mod lexer;
+pub mod lowering;
 pub mod parser;
 pub mod sema;
-pub mod ir;
-pub mod lowering;
-pub mod binary;
+pub mod token;
 
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
@@ -54,17 +54,17 @@ pub struct LexError {
 
 /// Compile a complete source string into an `.aslb` binary.
 pub fn compile(source: &str) -> Result<Vec<u8>, CompileError> {
-    let tokens   = lexer::tokenize(source)?;
-    let cst      = parser::parse(&tokens)?;
+    let tokens = lexer::tokenize(source)?;
+    let cst = parser::parse(&tokens)?;
 
     // ── Temporary AST dump ──
     let dump = format!("{:#?}", &cst);
     std::fs::write("ast_dump.txt", &dump).ok();
     // ── End dump ──
 
-    let typed    = sema::check(cst)?;
-    let ir_mod   = lowering::lower(&typed);
+    let typed = sema::check(cst)?;
+    let ir_mod = lowering::lower(&typed);
     ir::verify(&ir_mod)?;
-    let binary   = binary::serialize(&ir_mod)?;
+    let binary = binary::serialize(&ir_mod)?;
     Ok(binary)
 }

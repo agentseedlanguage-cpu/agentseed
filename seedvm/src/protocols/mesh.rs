@@ -8,8 +8,8 @@
 //!   3. Inter‑agent lineage — content‑hash parent tracking, anti‑echo
 //!   4. Remix — store receiver's own role‑evaluated understanding only
 
-use std::collections::{HashMap, HashSet};
 use crate::value::Value;
+use std::collections::{HashMap, HashSet};
 
 // ── CAT7: Cognitive Memory Block ──
 
@@ -59,8 +59,13 @@ impl CognitiveMemoryBlock {
     pub fn content_hash(&self) -> String {
         let content = format!(
             "{}|{}|{}|{}|{}|{}|{}",
-            self.focus, self.issue, self.intent, self.motivation,
-            self.commitment, self.perspective, self.mood
+            self.focus,
+            self.issue,
+            self.intent,
+            self.motivation,
+            self.commitment,
+            self.perspective,
+            self.mood
         );
         let hash = blake3::hash(content.as_bytes());
         hex::encode(hash.as_bytes())
@@ -89,7 +94,9 @@ pub struct SvafEvaluator {
 
 impl SvafEvaluator {
     pub fn new() -> Self {
-        Self { anchors: HashMap::new() }
+        Self {
+            anchors: HashMap::new(),
+        }
     }
 
     /// Register anchors for a role.
@@ -99,18 +106,16 @@ impl SvafEvaluator {
 
     /// Evaluate a CMB against a receiver role's anchors.
     /// Returns a map of field → score in [0, 1], plus a global accept/reject decision.
-    pub fn evaluate(
-        &self,
-        role: &str,
-        cmb: &CognitiveMemoryBlock,
-    ) -> SvafResult {
+    pub fn evaluate(&self, role: &str, cmb: &CognitiveMemoryBlock) -> SvafResult {
         let anchors = match self.anchors.get(role) {
             Some(a) => a,
-            None => return SvafResult {
-                accepted: false,
-                scores: HashMap::new(),
-                reason: format!("No anchors for role '{}'", role),
-            },
+            None => {
+                return SvafResult {
+                    accepted: false,
+                    scores: HashMap::new(),
+                    reason: format!("No anchors for role '{}'", role),
+                }
+            }
         };
 
         let fields: HashMap<&str, &str> = HashMap::from([
@@ -144,16 +149,24 @@ impl SvafEvaluator {
             accepted,
             scores,
             reason: if accepted {
-                format!("Accepted by role '{}' (ratio {:.2})", role, acceptance_ratio)
+                format!(
+                    "Accepted by role '{}' (ratio {:.2})",
+                    role, acceptance_ratio
+                )
             } else {
-                format!("Rejected by role '{}' (ratio {:.2} < {:.2})", role, acceptance_ratio, anchors.global_threshold)
+                format!(
+                    "Rejected by role '{}' (ratio {:.2} < {:.2})",
+                    role, acceptance_ratio, anchors.global_threshold
+                )
             },
         }
     }
 
     /// Score a single field value based on information density.
     fn score_field(&self, value: &str) -> f64 {
-        if value.is_empty() { return 0.0; }
+        if value.is_empty() {
+            return 0.0;
+        }
         let len = value.len() as f64;
         // Simple heuristic: longer, more specific answers score higher
         (len / 200.0).min(1.0)
@@ -194,7 +207,10 @@ impl LineageTracker {
         }
         self.seen_hashes.insert(hash.to_string());
         for parent in parent_hashes {
-            self.parent_map.entry(parent.clone()).or_default().push(hash.to_string());
+            self.parent_map
+                .entry(parent.clone())
+                .or_default()
+                .push(hash.to_string());
         }
         true
     }
@@ -210,11 +226,15 @@ impl LineageTracker {
         let mut current = hash.to_string();
         // Walk backwards through parent_map
         loop {
-            let parents: Vec<String> = self.parent_map.iter()
+            let parents: Vec<String> = self
+                .parent_map
+                .iter()
                 .filter(|(_, children)| children.contains(&current))
                 .map(|(parent, _)| parent.clone())
                 .collect();
-            if parents.is_empty() { break; }
+            if parents.is_empty() {
+                break;
+            }
             current = parents[0].clone();
             chain.push(current.clone());
         }
@@ -235,12 +255,18 @@ pub struct RemixProcessor {
 
 impl RemixProcessor {
     pub fn new(role: impl Into<String>) -> Self {
-        Self { receiver_role: role.into() }
+        Self {
+            receiver_role: role.into(),
+        }
     }
 
     /// Remix an accepted CMB into the receiver's own understanding.
     /// The resulting remixed block is tagged with the receiver's role.
-    pub fn remix(&self, cmb: &CognitiveMemoryBlock, svaf_result: &SvafResult) -> CognitiveMemoryBlock {
+    pub fn remix(
+        &self,
+        cmb: &CognitiveMemoryBlock,
+        svaf_result: &SvafResult,
+    ) -> CognitiveMemoryBlock {
         CognitiveMemoryBlock {
             focus: format!("[remixed by {}] {}", self.receiver_role, cmb.focus),
             issue: cmb.issue.clone(),

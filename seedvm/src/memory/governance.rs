@@ -7,13 +7,14 @@
 //!   - Decay weight updates on read
 //!   - Merkle integrity on write (via MerkleIntegrityManager)
 
-use super::{MemoryEntry, MemoryLayer, ConsentLevel};
 use super::merkle::MerkleIntegrityManager;
+use super::{ConsentLevel, MemoryEntry, MemoryLayer};
 use crate::state::VmError;
 use std::collections::HashMap;
 
 /// The tri‑path memory governor.
-#[derive(Debug)] pub struct MemoryGovernor {
+#[derive(Debug)]
+pub struct MemoryGovernor {
     /// Per‑layer stores.
     pub layers: [super::layer::LayerStore; 8],
     /// Merkle integrity manager for hash‑chaining writes.
@@ -28,14 +29,14 @@ impl MemoryGovernor {
     /// Create a new memory governor with empty layers.
     pub fn new() -> Self {
         let layers: [super::layer::LayerStore; 8] = [
-            super::layer::LayerStore::new_mutable(),      // L0 Working
-            super::layer::LayerStore::new_append_only(),  // L1 Episodic
-            super::layer::LayerStore::new_mutable(),      // L2 Semantic
-            super::layer::LayerStore::new_mutable(),      // L3 Procedural
-            super::layer::LayerStore::new_mutable(),      // L4 Prospective
-            super::layer::LayerStore::new_mutable(),      // L5 Federated
-            super::layer::LayerStore::new_append_only(),  // L6 Identity
-            super::layer::LayerStore::new_append_only(),  // L7 Provenance Index
+            super::layer::LayerStore::new_mutable(),     // L0 Working
+            super::layer::LayerStore::new_append_only(), // L1 Episodic
+            super::layer::LayerStore::new_mutable(),     // L2 Semantic
+            super::layer::LayerStore::new_mutable(),     // L3 Procedural
+            super::layer::LayerStore::new_mutable(),     // L4 Prospective
+            super::layer::LayerStore::new_mutable(),     // L5 Federated
+            super::layer::LayerStore::new_append_only(), // L6 Identity
+            super::layer::LayerStore::new_append_only(), // L7 Provenance Index
         ];
         Self {
             layers,
@@ -45,7 +46,10 @@ impl MemoryGovernor {
         }
     }
 
-    fn tick(&mut self) -> u64 { self.clock += 1; self.clock }
+    fn tick(&mut self) -> u64 {
+        self.clock += 1;
+        self.clock
+    }
 
     // ── Read path ──
 
@@ -84,7 +88,7 @@ impl MemoryGovernor {
     ///   - Compute a blake3 content hash for anti‑echo.
     ///   - Reject if the same content hash already exists in the anti‑echo set.
     ///   - Update Merkle root for the layer.
-        pub fn write(
+    pub fn write(
         &mut self,
         layer: MemoryLayer,
         key: impl Into<String>,
@@ -141,7 +145,7 @@ impl MemoryGovernor {
                     to_prune.push(entry_mut.key.clone());
                 }
             }
-}
+        }
 
         // Prune entries below threshold (only for mutable layers)
         for key in to_prune {
@@ -150,5 +154,7 @@ impl MemoryGovernor {
     }
 
     /// Return the current clock value.
-    pub fn clock(&self) -> u64 { self.clock }
+    pub fn clock(&self) -> u64 {
+        self.clock
+    }
 }

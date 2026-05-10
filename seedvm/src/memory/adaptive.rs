@@ -78,7 +78,8 @@ impl AdaptiveSelector {
             MemoryStructure::RuleBase,
         ];
 
-        let best = structures.iter()
+        let best = structures
+            .iter()
             .max_by(|a, b| score(**a).partial_cmp(&score(**b)).unwrap())
             .copied()
             .unwrap_or(MemoryStructure::RawBuffer);
@@ -98,7 +99,8 @@ impl AdaptiveSelector {
 
     /// Query the raw buffer.
     pub fn buffer_query(&self, key: &str) -> Option<&Value> {
-        self.raw_buffer.iter()
+        self.raw_buffer
+            .iter()
             .rev()
             .find(|(k, _)| k == key)
             .map(|(_, v)| v)

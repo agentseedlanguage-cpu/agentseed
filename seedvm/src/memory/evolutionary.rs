@@ -19,9 +19,9 @@ use std::collections::HashMap;
 /// Configuration tier for memory persistence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PersistenceTier {
-    Hot,   // Frequently accessed, in‑memory.
-    Warm,  // Infrequently accessed, cached on disk.
-    Cold,  // Rarely accessed, compressed archive.
+    Hot,  // Frequently accessed, in‑memory.
+    Warm, // Infrequently accessed, cached on disk.
+    Cold, // Rarely accessed, compressed archive.
 }
 
 /// The Prism evolutionary substrate.
@@ -57,9 +57,14 @@ pub struct SubsystemHealth {
 impl Default for SubsystemHealth {
     fn default() -> Self {
         Self {
-            encoder: true, indexer: true, retriever: true,
-            consolidator: true, pruner: true, evolver: true,
-            verifier: true, governor: true,
+            encoder: true,
+            indexer: true,
+            retriever: true,
+            consolidator: true,
+            pruner: true,
+            evolver: true,
+            verifier: true,
+            governor: true,
         }
     }
 }
@@ -78,7 +83,10 @@ impl PrismSubstrate {
     }
 
     /// Tick the internal clock.
-    pub fn tick(&mut self) -> u64 { self.clock += 1; self.clock }
+    pub fn tick(&mut self) -> u64 {
+        self.clock += 1;
+        self.clock
+    }
 
     /// Access a key — increment frequency, update last access, handle promotion.
     pub fn access(&mut self, key: &str) {
@@ -87,11 +95,15 @@ impl PrismSubstrate {
 
         // Promote if threshold exceeded
         if self.frequencies[key] >= self.promotion_threshold {
-            let current = self.tiers.get(key).copied().unwrap_or(PersistenceTier::Cold);
+            let current = self
+                .tiers
+                .get(key)
+                .copied()
+                .unwrap_or(PersistenceTier::Cold);
             let new_tier = match current {
-                PersistenceTier::Cold  => PersistenceTier::Warm,
-                PersistenceTier::Warm  => PersistenceTier::Hot,
-                PersistenceTier::Hot   => PersistenceTier::Hot,
+                PersistenceTier::Cold => PersistenceTier::Warm,
+                PersistenceTier::Warm => PersistenceTier::Hot,
+                PersistenceTier::Hot => PersistenceTier::Hot,
             };
             self.tiers.insert(key.to_string(), new_tier);
         }
@@ -107,7 +119,7 @@ impl PrismSubstrate {
             if clock.saturating_sub(*last) > interval {
                 let current = self.tiers.get(key).copied().unwrap_or(PersistenceTier::Hot);
                 let new_tier = match current {
-                    PersistenceTier::Hot  => PersistenceTier::Warm,
+                    PersistenceTier::Hot => PersistenceTier::Warm,
                     PersistenceTier::Warm => PersistenceTier::Cold,
                     PersistenceTier::Cold => PersistenceTier::Cold,
                 };
@@ -118,9 +130,13 @@ impl PrismSubstrate {
         }
 
         for key in to_demote {
-            let current = self.tiers.get(&key).copied().unwrap_or(PersistenceTier::Hot);
+            let current = self
+                .tiers
+                .get(&key)
+                .copied()
+                .unwrap_or(PersistenceTier::Hot);
             let new_tier = match current {
-                PersistenceTier::Hot  => PersistenceTier::Warm,
+                PersistenceTier::Hot => PersistenceTier::Warm,
                 PersistenceTier::Warm => PersistenceTier::Cold,
                 PersistenceTier::Cold => PersistenceTier::Cold,
             };

@@ -10,8 +10,8 @@
 //!   - openspawn/openspawn#734 — production A2A architecture
 //!   - Google A2A overview (atlan.com, May 2026)
 
-use std::collections::HashMap;
 use crate::value::Value;
+use std::collections::HashMap;
 
 // ── AgentCard ──
 
@@ -128,13 +128,19 @@ pub struct TaskEvent {
 pub enum A2ARpcMethod {
     /// Send a message to an agent.
     #[serde(rename = "SendMessage")]
-    SendMessage { task_id: String, message: serde_json::Value },
+    SendMessage {
+        task_id: String,
+        message: serde_json::Value,
+    },
     /// Retrieve a task by ID.
     #[serde(rename = "GetTask")]
     GetTask { task_id: String },
     /// List tasks matching optional filters.
     #[serde(rename = "ListTasks")]
-    ListTasks { context_id: Option<String>, state: Option<TaskState> },
+    ListTasks {
+        context_id: Option<String>,
+        state: Option<TaskState>,
+    },
     /// Cancel a running task.
     #[serde(rename = "CancelTask")]
     CancelTask { task_id: String },
@@ -149,7 +155,10 @@ pub enum A2ARpcMethod {
     SetTaskArtifact { task_id: String, artifact: Artifact },
     /// Get a task's artifact.
     #[serde(rename = "GetTaskArtifact")]
-    GetTaskArtifact { task_id: String, artifact_id: String },
+    GetTaskArtifact {
+        task_id: String,
+        artifact_id: String,
+    },
     /// Propose a task to be listed on the agent's public board.
     #[serde(rename = "ProposeTask")]
     ProposeTask { task: Task },
@@ -158,7 +167,10 @@ pub enum A2ARpcMethod {
     AcceptTask { task_id: String },
     /// Reject a proposed task.
     #[serde(rename = "RejectTask")]
-    RejectTask { task_id: String, reason: Option<String> },
+    RejectTask {
+        task_id: String,
+        reason: Option<String>,
+    },
 }
 
 // ── A2A Service ──
@@ -238,12 +250,21 @@ impl A2AService {
     }
 
     /// Execute a SendMessage RPC.
-    pub fn send_message(&mut self, task_id: &str, message: &serde_json::Value) -> Result<(), String> {
+    pub fn send_message(
+        &mut self,
+        task_id: &str,
+        message: &serde_json::Value,
+    ) -> Result<(), String> {
         if let Some(task) = self.tasks.get(task_id) {
-            if task.state == TaskState::Completed || task.state == TaskState::Failed
-                || task.state == TaskState::Canceled || task.state == TaskState::Rejected
+            if task.state == TaskState::Completed
+                || task.state == TaskState::Failed
+                || task.state == TaskState::Canceled
+                || task.state == TaskState::Rejected
             {
-                return Err(format!("Cannot send message to task in state {:?}", task.state));
+                return Err(format!(
+                    "Cannot send message to task in state {:?}",
+                    task.state
+                ));
             }
             self.transition_task(task_id, TaskState::Working, Some("message received".into()));
             Ok(())

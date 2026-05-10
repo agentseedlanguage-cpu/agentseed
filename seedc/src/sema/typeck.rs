@@ -68,7 +68,10 @@ impl Inferencer {
             Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| self.apply_subst(t)).collect()),
             Ty::Ref(mutbl, t) => Ty::Ref(*mutbl, Box::new(self.apply_subst(t))),
             Ty::Affine(t) => Ty::Affine(Box::new(self.apply_subst(t))),
-            Ty::Nominal(n, args) => Ty::Nominal(n.clone(), args.iter().map(|a| self.apply_subst(a)).collect()),
+            Ty::Nominal(n, args) => Ty::Nominal(
+                n.clone(),
+                args.iter().map(|a| self.apply_subst(a)).collect(),
+            ),
             Ty::Scheme(vars, t) => {
                 let t = self.apply_subst(t);
                 Ty::Scheme(vars.clone(), Box::new(t))
@@ -92,7 +95,9 @@ impl Inferencer {
                 Ok(())
             }
             (Ty::Prim(a), Ty::Prim(b)) if a == b => Ok(()),
-            (Ty::Fn(args_a, ret_a, _), Ty::Fn(args_b, ret_b, _)) if args_a.len() == args_b.len() => {
+            (Ty::Fn(args_a, ret_a, _), Ty::Fn(args_b, ret_b, _))
+                if args_a.len() == args_b.len() =>
+            {
                 for (a, b) in args_a.iter().zip(args_b.iter()) {
                     self.unify(a, b)?;
                 }
@@ -100,12 +105,18 @@ impl Inferencer {
             }
             (Ty::Array(t_a, n_a), Ty::Array(t_b, n_b)) if n_a == n_b => self.unify(t_a, t_b),
             (Ty::Tuple(a), Ty::Tuple(b)) if a.len() == b.len() => {
-                for (x, y) in a.iter().zip(b.iter()) { self.unify(x, y)?; }
+                for (x, y) in a.iter().zip(b.iter()) {
+                    self.unify(x, y)?;
+                }
                 Ok(())
             }
             (Ty::Ref(ma, ta), Ty::Ref(mb, tb)) if ma == mb => self.unify(ta, tb),
-            (Ty::Nominal(na, args_a), Ty::Nominal(nb, args_b)) if na == nb && args_a.len() == args_b.len() => {
-                for (a, b) in args_a.iter().zip(args_b.iter()) { self.unify(a, b)?; }
+            (Ty::Nominal(na, args_a), Ty::Nominal(nb, args_b))
+                if na == nb && args_a.len() == args_b.len() =>
+            {
+                for (a, b) in args_a.iter().zip(args_b.iter()) {
+                    self.unify(a, b)?;
+                }
                 Ok(())
             }
             // ── FIXED: added field name `span:` ──
@@ -121,7 +132,9 @@ impl Inferencer {
     fn occurs(&self, var: usize, ty: &Ty) -> bool {
         match ty {
             Ty::Var(v) => *v == var,
-            Ty::Fn(args, ret, _) => args.iter().any(|a| self.occurs(var, a)) || self.occurs(var, ret),
+            Ty::Fn(args, ret, _) => {
+                args.iter().any(|a| self.occurs(var, a)) || self.occurs(var, ret)
+            }
             Ty::Array(t, _) | Ty::Ref(_, t) | Ty::Affine(t) => self.occurs(var, t),
             Ty::Tuple(ts) => ts.iter().any(|t| self.occurs(var, t)),
             Ty::Nominal(_, args) => args.iter().any(|a| self.occurs(var, a)),
@@ -147,15 +160,27 @@ impl Inferencer {
     fn collect_free_vars(&self, ty: &Ty, fv: &mut HashSet<usize>) {
         match ty {
             Ty::Var(v) => {
-                if !self.substitution.contains_key(v) { fv.insert(*v); }
+                if !self.substitution.contains_key(v) {
+                    fv.insert(*v);
+                }
             }
             Ty::Fn(args, ret, _) => {
-                for a in args { self.collect_free_vars(a, fv); }
+                for a in args {
+                    self.collect_free_vars(a, fv);
+                }
                 self.collect_free_vars(ret, fv);
             }
             Ty::Array(t, _) | Ty::Ref(_, t) | Ty::Affine(t) => self.collect_free_vars(t, fv),
-            Ty::Tuple(ts) => for t in ts { self.collect_free_vars(t, fv); }
-            Ty::Nominal(_, args) => for a in args { self.collect_free_vars(a, fv); }
+            Ty::Tuple(ts) => {
+                for t in ts {
+                    self.collect_free_vars(t, fv);
+                }
+            }
+            Ty::Nominal(_, args) => {
+                for a in args {
+                    self.collect_free_vars(a, fv);
+                }
+            }
             _ => {}
         }
     }
@@ -177,18 +202,29 @@ impl Inferencer {
         match ty {
             Ty::Var(v) => subst.get(v).cloned().unwrap_or(ty.clone()),
             Ty::Fn(args, ret, eff) => Ty::Fn(
-                args.iter().map(|a| self.instantiate_with(subst, a)).collect(),
+                args.iter()
+                    .map(|a| self.instantiate_with(subst, a))
+                    .collect(),
                 Box::new(self.instantiate_with(subst, ret)),
                 eff.clone(),
             ),
             Ty::Array(t, n) => Ty::Array(Box::new(self.instantiate_with(subst, t)), *n),
-            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| self.instantiate_with(subst, t)).collect()),
+            Ty::Tuple(ts) => {
+                Ty::Tuple(ts.iter().map(|t| self.instantiate_with(subst, t)).collect())
+            }
             Ty::Ref(m, t) => Ty::Ref(*m, Box::new(self.instantiate_with(subst, t))),
             Ty::Affine(t) => Ty::Affine(Box::new(self.instantiate_with(subst, t))),
-            Ty::Nominal(n, args) => Ty::Nominal(n.clone(), args.iter().map(|a| self.instantiate_with(subst, a)).collect()),
+            Ty::Nominal(n, args) => Ty::Nominal(
+                n.clone(),
+                args.iter()
+                    .map(|a| self.instantiate_with(subst, a))
+                    .collect(),
+            ),
             Ty::Scheme(vars, t) => {
                 let mut subst = subst.clone();
-                for v in vars { subst.remove(v); }
+                for v in vars {
+                    subst.remove(v);
+                }
                 Ty::Scheme(vars.clone(), Box::new(self.instantiate_with(&subst, t)))
             }
             other => other.clone(),
@@ -199,11 +235,22 @@ impl Inferencer {
 
     pub fn infer_expr(&mut self, expr: &ast::Expr) -> Result<(Ty, EffectSet), TypeError> {
         match &expr.kind {
-            ast::ExprKind::Lit(ast::Literal::Int(_, _)) => Ok((Ty::Prim(PrimTy::I32), EffectSet::pure())),
-            ast::ExprKind::Lit(ast::Literal::Float(_)) => Ok((Ty::Prim(PrimTy::F32), EffectSet::pure())),
-            ast::ExprKind::Lit(ast::Literal::String(_)) | ast::ExprKind::Lit(ast::Literal::RawString(_)) => Ok((Ty::Prim(PrimTy::String), EffectSet::pure())),
-            ast::ExprKind::Lit(ast::Literal::Char(_)) => Ok((Ty::Prim(PrimTy::Char), EffectSet::pure())),
-            ast::ExprKind::Lit(ast::Literal::Bool(_)) => Ok((Ty::Prim(PrimTy::Bool), EffectSet::pure())),
+            ast::ExprKind::Lit(ast::Literal::Int(_, _)) => {
+                Ok((Ty::Prim(PrimTy::I32), EffectSet::pure()))
+            }
+            ast::ExprKind::Lit(ast::Literal::Float(_)) => {
+                Ok((Ty::Prim(PrimTy::F32), EffectSet::pure()))
+            }
+            ast::ExprKind::Lit(ast::Literal::String(_))
+            | ast::ExprKind::Lit(ast::Literal::RawString(_)) => {
+                Ok((Ty::Prim(PrimTy::String), EffectSet::pure()))
+            }
+            ast::ExprKind::Lit(ast::Literal::Char(_)) => {
+                Ok((Ty::Prim(PrimTy::Char), EffectSet::pure()))
+            }
+            ast::ExprKind::Lit(ast::Literal::Bool(_)) => {
+                Ok((Ty::Prim(PrimTy::Bool), EffectSet::pure()))
+            }
             ast::ExprKind::Lit(ast::Literal::Null) => Ok((Ty::Unknown, EffectSet::pure())),
 
             ast::ExprKind::Binary(op, lhs, rhs) => {
@@ -275,15 +322,24 @@ impl Inferencer {
             ast::ExprKind::If(i) => {
                 let (cond_ty, cond_eff) = self.infer_expr(&i.cond)?;
                 self.unify(&cond_ty, &Ty::Prim(PrimTy::Bool))?;
-                let (then_ty, then_eff) = self.infer_expr(&Box::new(ast::ExprNode { kind: ast::ExprKind::Block(i.then_branch.clone()), span: i.span }))?;
+                let (then_ty, then_eff) = self.infer_expr(&Box::new(ast::ExprNode {
+                    kind: ast::ExprKind::Block(i.then_branch.clone()),
+                    span: i.span,
+                }))?;
                 let (else_ty, else_eff) = if let Some(eb) = &i.else_branch {
                     match &**eb {
                         ast::ElseBranch::Block(b) => {
-                            let (t, e) = self.infer_expr(&Box::new(ast::ExprNode { kind: ast::ExprKind::Block(b.clone()), span: i.span }))?;
+                            let (t, e) = self.infer_expr(&Box::new(ast::ExprNode {
+                                kind: ast::ExprKind::Block(b.clone()),
+                                span: i.span,
+                            }))?;
                             (t, e)
                         }
                         ast::ElseBranch::If(inner) => {
-                            let (t, e) = self.infer_expr(&Box::new(ast::ExprNode { kind: ast::ExprKind::If(*inner.clone()), span: i.span }))?;
+                            let (t, e) = self.infer_expr(&Box::new(ast::ExprNode {
+                                kind: ast::ExprKind::If(*inner.clone()),
+                                span: i.span,
+                            }))?;
                             (t, e)
                         }
                     }
@@ -297,7 +353,10 @@ impl Inferencer {
 
             ast::ExprKind::Perform(op, args) => {
                 let mut eff = EffectSet::pure();
-                for a in args { let (_, e) = self.infer_expr(a)?; eff = eff.union(&e); }
+                for a in args {
+                    let (_, e) = self.infer_expr(a)?;
+                    eff = eff.union(&e);
+                }
                 eff.effects.insert(Effect::Named(op.name.clone()));
                 if !self.inside_discharge {
                     self.errors.push(TypeError::UndischargedEffect {
@@ -314,7 +373,10 @@ impl Inferencer {
                 let (ty, scrut_eff) = self.infer_expr(scrutinee)?;
                 let mut eff = scrut_eff;
                 for (_, body) in thresholds {
-                    let (_, body_eff) = self.infer_expr(&Box::new(ast::ExprNode { kind: ast::ExprKind::Block(body.clone()), span: expr.span }))?;
+                    let (_, body_eff) = self.infer_expr(&Box::new(ast::ExprNode {
+                        kind: ast::ExprKind::Block(body.clone()),
+                        span: expr.span,
+                    }))?;
                     eff = eff.union(&body_eff);
                 }
                 self.inside_discharge = was_inside;

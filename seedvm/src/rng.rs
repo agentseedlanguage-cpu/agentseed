@@ -27,13 +27,21 @@ impl DeterministicRng {
     /// Create a new deterministic RNG from a 64-bit seed.
     pub fn new(seed: u64) -> Self {
         // Use a simple mixing step to avoid zero-seed issues
-        let mixed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let mixed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let inner = Pcg64Mcg::seed_from_u64(mixed);
-        Self { inner, seed, draw_count: 0 }
+        Self {
+            inner,
+            seed,
+            draw_count: 0,
+        }
     }
 
     /// Return the original seed (for replay verification).
-    pub fn seed(&self) -> u64 { self.seed }
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
 
     /// Generate a uniformly distributed `u64`.
     pub fn next_u64(&mut self) -> u64 {

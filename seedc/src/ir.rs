@@ -2,9 +2,9 @@
 //!
 //! An SSA‑based representation with explicit control flow and effect tracking.
 
+use miette::{Diagnostic, SourceSpan};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
 pub type FuncId = usize;
@@ -38,25 +38,62 @@ pub struct BasicBlock {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Opcode {
-    Const, Add, Sub, Mul, Div, Rem,
-    Eq, NotEq, Lt, Gt, LtEq, GtEq,
-    And, Or, Not,
-    Load, Store, Alloca,
-    LoadLocal, StoreLocal,
-    Call, CallIndirect, Return,
-    MemLoad, MemStore, MemQuery, MemPromote, MemDecay,
-    AgentSpawn, AgentSend, AgentRecv,
-    Discharge, Perform,
-    Infer, Observe,
-    HeartbeatTick, HeartbeatSleep,
-    DreamConsolidate, DreamResolve, DreamPrune,
-    ConfidenceGate, ConfidenceAsk,
-    CapCheck, CapGrant, CapRevoke,
-    DecisionLog, DecisionQuery,
-    PipeConnect, PipePush, PipePull,
-    FederationPublish, FederationSubscribe, FederationQuery,
+    Const,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Eq,
+    NotEq,
+    Lt,
+    Gt,
+    LtEq,
+    GtEq,
+    And,
+    Or,
+    Not,
+    Load,
+    Store,
+    Alloca,
+    LoadLocal,
+    StoreLocal,
+    Call,
+    CallIndirect,
+    Return,
+    MemLoad,
+    MemStore,
+    MemQuery,
+    MemPromote,
+    MemDecay,
+    AgentSpawn,
+    AgentSend,
+    AgentRecv,
+    Discharge,
+    Perform,
+    Infer,
+    Observe,
+    HeartbeatTick,
+    HeartbeatSleep,
+    DreamConsolidate,
+    DreamResolve,
+    DreamPrune,
+    ConfidenceGate,
+    ConfidenceAsk,
+    CapCheck,
+    CapGrant,
+    CapRevoke,
+    DecisionLog,
+    DecisionQuery,
+    PipeConnect,
+    PipePush,
+    PipePull,
+    FederationPublish,
+    FederationSubscribe,
+    FederationQuery,
     CorrigibilityCheck,
-    Phi, Nop,
+    Phi,
+    Nop,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,16 +121,28 @@ pub enum Operand {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum IrType {
-    Void, Bool,
-    I8, I16, I32, I64,
-    U8, U16, U32, U64,
-    F32, F64,
-    Char, String,
+    Void,
+    Bool,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    F32,
+    F64,
+    Char,
+    String,
     Ptr(Box<IrType>),
     Array(Box<IrType>, usize),
     Struct(Vec<IrType>),
     Func(Vec<IrType>, Box<IrType>),
-    Agent, Section, Capability, Unknown,
+    Agent,
+    Section,
+    Capability,
+    Unknown,
 }
 
 impl fmt::Display for IrType {
@@ -104,7 +153,11 @@ impl fmt::Display for IrType {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Terminator {
-    Branch { cond: Operand, then_block: BlockId, else_block: BlockId },
+    Branch {
+        cond: Operand,
+        then_block: BlockId,
+        else_block: BlockId,
+    },
     Jump(BlockId),
     Return(Option<Operand>),
     Halt,
@@ -126,19 +179,35 @@ pub enum IrError {
 
     #[error("type mismatch in instruction")]
     #[diagnostic(help("Expected {expected}, got {found}."))]
-    TypeMismatch { expected: String, found: String, span: Option<SourceSpan> },
+    TypeMismatch {
+        expected: String,
+        found: String,
+        span: Option<SourceSpan>,
+    },
 
     #[error("effect violation")]
     #[diagnostic(help("{msg}"))]
-    EffectViolation { msg: String, span: Option<SourceSpan> },
+    EffectViolation {
+        msg: String,
+        span: Option<SourceSpan>,
+    },
 
     #[error("control flow error")]
     #[diagnostic(help("{msg}"))]
-    ControlFlowError { msg: String, span: Option<SourceSpan> },
+    ControlFlowError {
+        msg: String,
+        span: Option<SourceSpan>,
+    },
 }
 
 impl Module {
-    pub fn new() -> Self { Self { functions: vec![], globals: vec![], exports: vec![] } }
+    pub fn new() -> Self {
+        Self {
+            functions: vec![],
+            globals: vec![],
+            exports: vec![],
+        }
+    }
     pub fn add_function(&mut self, f: Function) -> FuncId {
         let id = self.functions.len();
         self.functions.push(f);
@@ -149,12 +218,28 @@ impl Module {
 impl Function {
     pub fn new(name: String, params: Vec<VarId>, return_ty: IrType) -> Self {
         let max_locals = params.len();
-        let entry_block = BasicBlock { id: 0, instrs: vec![], terminator: Terminator::Halt };
-        Self { name, params, return_ty, blocks: vec![entry_block], entry: 0, max_locals, effect_set: vec![] }
+        let entry_block = BasicBlock {
+            id: 0,
+            instrs: vec![],
+            terminator: Terminator::Halt,
+        };
+        Self {
+            name,
+            params,
+            return_ty,
+            blocks: vec![entry_block],
+            entry: 0,
+            max_locals,
+            effect_set: vec![],
+        }
     }
     pub fn add_block(&mut self) -> BlockId {
         let id = self.blocks.len();
-        self.blocks.push(BasicBlock { id, instrs: vec![], terminator: Terminator::Halt });
+        self.blocks.push(BasicBlock {
+            id,
+            instrs: vec![],
+            terminator: Terminator::Halt,
+        });
         id
     }
     pub fn push_instr(&mut self, block: BlockId, instr: Instr) {
@@ -172,7 +257,12 @@ impl Function {
 
 impl Instr {
     pub fn new(opcode: Opcode, dest: Option<VarId>, operands: Vec<Operand>) -> Self {
-        Self { opcode, dest, operands, span: None }
+        Self {
+            opcode,
+            dest,
+            operands,
+            span: None,
+        }
     }
 }
 

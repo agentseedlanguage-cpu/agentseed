@@ -1,8 +1,8 @@
-pub mod nameres;
-pub mod typeck;
-pub mod effectck;
-pub mod taintck;
 pub mod contractck;
+pub mod effectck;
+pub mod nameres;
+pub mod taintck;
+pub mod typeck;
 pub mod types;
 
 use crate::ast::Program;

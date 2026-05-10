@@ -7,8 +7,8 @@
 //! System 2: exhaustive graph traversal for complex or high‑stakes queries.
 //! A multi‑dimensional quality gating policy bridges the two.
 
-use super::MemoryLayer;
 use super::MemoryEntry;
+use super::MemoryLayer;
 use crate::value::Value;
 
 /// The gating decision for routing a query.
@@ -51,7 +51,12 @@ impl DualProcessController {
     ///   - Stakes of the decision (high → System 2)
     ///   - Recency requirements (very recent → System 1 cache hit)
     ///   - Contradiction potential (high → System 2)
-    pub fn gate(&mut self, query_novelty: f64, stakes: f64, prior_confidence: Option<f64>) -> GatingDecision {
+    pub fn gate(
+        &mut self,
+        query_novelty: f64,
+        stakes: f64,
+        prior_confidence: Option<f64>,
+    ) -> GatingDecision {
         let decision = if query_novelty > 0.7 || stakes > 0.7 {
             GatingDecision::System2
         } else if let Some(conf) = prior_confidence {
@@ -74,7 +79,8 @@ impl DualProcessController {
         query: &str,
         entries: &'a [MemoryEntry],
     ) -> Vec<&'a MemoryEntry> {
-        entries.iter()
+        entries
+            .iter()
             .filter(|e| e.key.contains(query) || self.fuzzy_match(&e.key, query))
             .collect()
     }
@@ -89,13 +95,13 @@ impl DualProcessController {
     ) -> Vec<&'a MemoryEntry> {
         // Exhaustive traversal with graph expansion
         // For now, return all entries with relevance scoring
-        entries.iter()
-            .filter(|e| e.weight > 0.2)
-            .collect()
+        entries.iter().filter(|e| e.weight > 0.2).collect()
     }
 
     /// Simple fuzzy match (contains all query terms).
     fn fuzzy_match(&self, key: &str, query: &str) -> bool {
-        query.split_whitespace().all(|term| key.to_lowercase().contains(&term.to_lowercase()))
+        query
+            .split_whitespace()
+            .all(|term| key.to_lowercase().contains(&term.to_lowercase()))
     }
 }

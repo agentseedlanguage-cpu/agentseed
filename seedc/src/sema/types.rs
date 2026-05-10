@@ -45,18 +45,24 @@ impl std::fmt::Display for Ty {
             Ty::Fn(args, ret, eff) => {
                 write!(f, "fn(")?;
                 for (i, a) in args.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", a)?;
                 }
                 write!(f, ") -> {}", ret)?;
-                if let Some(e) = eff { write!(f, " !{}", e)?; }
+                if let Some(e) = eff {
+                    write!(f, " !{}", e)?;
+                }
                 Ok(())
             }
             Ty::Array(t, n) => write!(f, "[{}; {}]", t, n),
             Ty::Tuple(ts) => {
                 write!(f, "(")?;
                 for (i, t) in ts.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", t)?;
                 }
                 write!(f, ")")
@@ -66,7 +72,9 @@ impl std::fmt::Display for Ty {
                 if !args.is_empty() {
                     write!(f, "<")?;
                     for (i, a) in args.iter().enumerate() {
-                        if i > 0 { write!(f, ", ")?; }
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
                         write!(f, "{}", a)?;
                     }
                     write!(f, ">")?;
@@ -77,7 +85,9 @@ impl std::fmt::Display for Ty {
             Ty::Scheme(vars, t) => {
                 write!(f, "forall ")?;
                 for (i, v) in vars.iter().enumerate() {
-                    if i > 0 { write!(f, " ")?; }
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
                     write!(f, "?{}", v)?;
                 }
                 write!(f, ". {}", t)
@@ -92,18 +102,42 @@ impl std::fmt::Display for Ty {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimTy {
-    Bool, U8, U16, U32, U64, I8, I16, I32, I64, F32, F64, Char, String,
+    Bool,
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
+    F32,
+    F64,
+    Char,
+    String,
 }
 
 impl std::fmt::Display for PrimTy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            PrimTy::Bool => "bool", PrimTy::U8 => "u8", PrimTy::U16 => "u16",
-            PrimTy::U32 => "u32", PrimTy::U64 => "u64", PrimTy::I8 => "i8",
-            PrimTy::I16 => "i16", PrimTy::I32 => "i32", PrimTy::I64 => "i64",
-            PrimTy::F32 => "f32", PrimTy::F64 => "f64", PrimTy::Char => "char",
-            PrimTy::String => "string",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                PrimTy::Bool => "bool",
+                PrimTy::U8 => "u8",
+                PrimTy::U16 => "u16",
+                PrimTy::U32 => "u32",
+                PrimTy::U64 => "u64",
+                PrimTy::I8 => "i8",
+                PrimTy::I16 => "i16",
+                PrimTy::I32 => "i32",
+                PrimTy::I64 => "i64",
+                PrimTy::F32 => "f32",
+                PrimTy::F64 => "f64",
+                PrimTy::Char => "char",
+                PrimTy::String => "string",
+            }
+        )
     }
 }
 
@@ -142,7 +176,9 @@ impl std::fmt::Display for EffectSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
         for (i, e) in self.effects.iter().enumerate() {
-            if i > 0 { write!(f, ", ")?; }
+            if i > 0 {
+                write!(f, ", ")?;
+            }
             write!(f, "{:?}", e)?;
         }
         write!(f, "}}")
@@ -150,14 +186,20 @@ impl std::fmt::Display for EffectSet {
 }
 
 impl EffectSet {
-    pub fn pure() -> Self { Self { effects: HashSet::new() } }
+    pub fn pure() -> Self {
+        Self {
+            effects: HashSet::new(),
+        }
+    }
     pub fn singleton(e: Effect) -> Self {
         let mut set = HashSet::new();
         set.insert(e);
         Self { effects: set }
     }
     pub fn union(&self, other: &Self) -> Self {
-        Self { effects: self.effects.union(&other.effects).cloned().collect() }
+        Self {
+            effects: self.effects.union(&other.effects).cloned().collect(),
+        }
     }
     pub fn contains_any(&self, other: &Self) -> bool {
         !self.effects.is_disjoint(&other.effects)
@@ -191,10 +233,23 @@ pub struct TaintMeta {
 }
 
 impl TaintMeta {
-    pub fn clean() -> Self { Self { level: TaintLevel::Clean, sources: vec![] } }
-    pub fn agnostic() -> Self { Self { level: TaintLevel::Agnostic, sources: vec![] } }
+    pub fn clean() -> Self {
+        Self {
+            level: TaintLevel::Clean,
+            sources: vec![],
+        }
+    }
+    pub fn agnostic() -> Self {
+        Self {
+            level: TaintLevel::Agnostic,
+            sources: vec![],
+        }
+    }
     pub fn tainted(source: impl Into<String>) -> Self {
-        Self { level: TaintLevel::Tainted, sources: vec![source.into()] }
+        Self {
+            level: TaintLevel::Tainted,
+            sources: vec![source.into()],
+        }
     }
     pub fn join(&self, other: &Self) -> Self {
         let level = self.level.join(other.level);
@@ -253,7 +308,13 @@ pub struct TypeEnv {
 }
 
 impl TypeEnv {
-    pub fn new() -> Self { Self::default() }
-    pub fn push_scope(&mut self) { self.depth += 1; }
-    pub fn pop_scope(&mut self) { self.depth = self.depth.saturating_sub(1); }
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn push_scope(&mut self) {
+        self.depth += 1;
+    }
+    pub fn pop_scope(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
+    }
 }

@@ -1,11 +1,11 @@
-pub mod value;
 pub mod computation;
-pub mod state;
 pub mod executor;
-pub mod rng;
-pub mod schedule;
 pub mod memory;
 pub mod protocols;
+pub mod rng;
+pub mod schedule;
+pub mod state;
+pub mod value;
 
 use seedc::ir::Module;
 use std::path::Path;

@@ -13,12 +13,12 @@
 //!   - LSP 3.17 specification (microsoft.github.io/language-server-protocol)
 //!   - jinja-lsp server architecture (git.joshthomas.dev, May 2025)
 
-use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer, LspService, Server};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tower_lsp::jsonrpc::Result as LspResult;
+use tower_lsp::lsp_types::*;
+use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 // ── Backend ──
 
@@ -46,7 +46,12 @@ struct DocumentState {
 
 impl DocumentState {
     fn new(text: String, language_id: String, version: i32) -> Self {
-        Self { text: ropey::Rope::from(text), language_id, version, dirty: true }
+        Self {
+            text: ropey::Rope::from(text),
+            language_id,
+            version,
+            dirty: true,
+        }
     }
 }
 
@@ -63,7 +68,9 @@ impl LanguageServer for Backend {
                 version: Some("15.2.0".into()),
             }),
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::INCREMENTAL)),
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::INCREMENTAL,
+                )),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Some(vec![".".into(), ":".into(), "@".into(), "§".into()]),
                     resolve_provider: Some(true),
@@ -77,29 +84,31 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 })),
                 document_symbol_provider: Some(OneOf::Left(true)),
-                semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
-                    SemanticTokensOptions {
-                        legend: SemanticTokensLegend {
-                            token_types: vec![
-                                SemanticTokenType::KEYWORD,
-                                SemanticTokenType::FUNCTION,
-                                SemanticTokenType::VARIABLE,
-                                SemanticTokenType::TYPE,
-                                SemanticTokenType::STRING,
-                                SemanticTokenType::NUMBER,
-                                SemanticTokenType::COMMENT,
-                                SemanticTokenType::OPERATOR,
-                            ],
-                            token_modifiers: vec![
-                                SemanticTokenModifier::DECLARATION,
-                                SemanticTokenModifier::DEFINITION,
-                                SemanticTokenModifier::READONLY,
-                            ],
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: SemanticTokensLegend {
+                                token_types: vec![
+                                    SemanticTokenType::KEYWORD,
+                                    SemanticTokenType::FUNCTION,
+                                    SemanticTokenType::VARIABLE,
+                                    SemanticTokenType::TYPE,
+                                    SemanticTokenType::STRING,
+                                    SemanticTokenType::NUMBER,
+                                    SemanticTokenType::COMMENT,
+                                    SemanticTokenType::OPERATOR,
+                                ],
+                                token_modifiers: vec![
+                                    SemanticTokenModifier::DECLARATION,
+                                    SemanticTokenModifier::DEFINITION,
+                                    SemanticTokenModifier::READONLY,
+                                ],
+                            },
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            ..Default::default()
                         },
-                        full: Some(SemanticTokensFullOptions::Bool(true)),
-                        ..Default::default()
-                    },
-                )),
+                    ),
+                ),
                 ..Default::default()
             },
             ..Default::default()
@@ -107,17 +116,31 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client.log_message(MessageType::INFO, "AGENT-SEED Language Server v15.2.0 initialized").await;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                "AGENT-SEED Language Server v15.2.0 initialized",
+            )
+            .await;
     }
 
-    async fn shutdown(&self) -> LspResult<()> { Ok(()) }
+    async fn shutdown(&self) -> LspResult<()> {
+        Ok(())
+    }
 
     // ── Document sync ──
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
-        let doc = DocumentState::new(params.text_document.text, params.text_document.language_id, params.text_document.version);
-        self.documents.write().await.insert(uri.clone(), doc.clone());
+        let doc = DocumentState::new(
+            params.text_document.text,
+            params.text_document.language_id,
+            params.text_document.version,
+        );
+        self.documents
+            .write()
+            .await
+            .insert(uri.clone(), doc.clone());
         self.publish_diagnostics(&uri, &doc).await;
     }
 
@@ -140,13 +163,17 @@ impl LanguageServer for Backend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.documents.write().await.remove(&params.text_document.uri);
+        self.documents
+            .write()
+            .await
+            .remove(&params.text_document.uri);
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let docs = self.documents.read().await;
         if let Some(doc) = docs.get(&params.text_document.uri) {
-            self.publish_diagnostics(&params.text_document.uri, doc).await;
+            self.publish_diagnostics(&params.text_document.uri, doc)
+                .await;
         }
     }
 
@@ -203,7 +230,10 @@ impl LanguageServer for Backend {
 
     // ── Go-to-definition ──
 
-    async fn goto_definition(&self, _params: GotoDefinitionParams) -> LspResult<Option<GotoDefinitionResponse>> {
+    async fn goto_definition(
+        &self,
+        _params: GotoDefinitionParams,
+    ) -> LspResult<Option<GotoDefinitionResponse>> {
         // Stub: integrate with seedc name resolution
         Ok(None)
     }
@@ -220,19 +250,28 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
-    async fn prepare_rename(&self, _params: TextDocumentPositionParams) -> LspResult<Option<PrepareRenameResponse>> {
+    async fn prepare_rename(
+        &self,
+        _params: TextDocumentPositionParams,
+    ) -> LspResult<Option<PrepareRenameResponse>> {
         Ok(None)
     }
 
     // ── Document symbols ──
 
-    async fn document_symbol(&self, _params: DocumentSymbolParams) -> LspResult<Option<DocumentSymbolResponse>> {
+    async fn document_symbol(
+        &self,
+        _params: DocumentSymbolParams,
+    ) -> LspResult<Option<DocumentSymbolResponse>> {
         Ok(None)
     }
 
     // ── Semantic tokens ──
 
-    async fn semantic_tokens_full(&self, _params: SemanticTokensParams) -> LspResult<Option<SemanticTokensResult>> {
+    async fn semantic_tokens_full(
+        &self,
+        _params: SemanticTokensParams,
+    ) -> LspResult<Option<SemanticTokensResult>> {
         Ok(None)
     }
 }
@@ -247,14 +286,19 @@ impl Backend {
             Ok(_) => Vec::new(),
             Err(e) => {
                 vec![Diagnostic {
-                    range: Range { start: Position::new(0, 0), end: Position::new(0, 0) },
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: Position::new(0, 0),
+                    },
                     severity: Some(DiagnosticSeverity::ERROR),
                     message: format!("{}", e),
                     ..Default::default()
                 }]
             }
         };
-        self.client.publish_diagnostics(uri.clone(), diags, Some(doc.version)).await;
+        self.client
+            .publish_diagnostics(uri.clone(), diags, Some(doc.version))
+            .await;
     }
 
     /// Compute completion items based on the current line context.
@@ -320,7 +364,10 @@ impl Backend {
                 ("§USER-MODEL", "Known user attributes"),
                 ("§RUNTIME-CONSTRAINTS", "AgentSpec safety constraints"),
                 ("§SAFETY-CONTRACTS", "Alignment contracts"),
-                ("§BOOTSTRAP-INSTRUCTIONS", "Boot sequence for loading the seed"),
+                (
+                    "§BOOTSTRAP-INSTRUCTIONS",
+                    "Boot sequence for loading the seed",
+                ),
                 ("§HEARTBEAT", "Heartbeat configuration"),
                 ("§DREAM-CYCLE", "Dream cycle configuration"),
                 ("§STIGMERGY-SUBSTRATE", "Federated knowledge substrate"),
@@ -370,7 +417,9 @@ impl Backend {
             ("pipeline", "**pipeline** — Composes agents sequentially, with data flowing through stages.\n\n```seed\nresearcher |> fact_checker |> summarizer\n```"),
         ]);
 
-        info.get(word).cloned().unwrap_or_else(|| format!("**{}** — no documentation available", word))
+        info.get(word)
+            .cloned()
+            .unwrap_or_else(|| format!("**{}** — no documentation available", word))
     }
 
     /// Get a line from a ropey document.
@@ -386,12 +435,20 @@ impl Backend {
     fn word_at(line: &str, col: usize) -> Option<&str> {
         let chars: Vec<char> = line.chars().collect();
         let col = col.min(chars.len());
-        if col == 0 || !chars.get(col.saturating_sub(1)).map_or(false, |c| c.is_alphanumeric() || *c == '_' || *c == '§') {
+        if col == 0
+            || !chars
+                .get(col.saturating_sub(1))
+                .map_or(false, |c| c.is_alphanumeric() || *c == '_' || *c == '§')
+        {
             return None;
         }
 
         let mut start = col.saturating_sub(1);
-        while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_' || chars[start - 1] == '§') {
+        while start > 0
+            && (chars[start - 1].is_alphanumeric()
+                || chars[start - 1] == '_'
+                || chars[start - 1] == '§')
+        {
             start -= 1;
         }
 
@@ -400,7 +457,10 @@ impl Backend {
             end += 1;
         }
 
-        Some(&line[chars[..start].iter().map(|c| c.len_utf8()).sum::<usize>()..chars[..end].iter().map(|c| c.len_utf8()).sum::<usize>()])
+        Some(
+            &line[chars[..start].iter().map(|c| c.len_utf8()).sum::<usize>()
+                ..chars[..end].iter().map(|c| c.len_utf8()).sum::<usize>()],
+        )
     }
 
     /// Convert LSP Position to character offset in a ropey rope.

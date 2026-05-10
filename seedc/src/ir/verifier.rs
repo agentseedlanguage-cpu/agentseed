@@ -34,7 +34,11 @@ fn verify_function(func: &Function) -> Result<(), IrError> {
     // Check entry block exists
     if func.entry >= func.blocks.len() {
         return Err(IrError::ControlFlowError {
-            msg: format!("Entry block {} out of range (0-{})", func.entry, func.blocks.len()),
+            msg: format!(
+                "Entry block {} out of range (0-{})",
+                func.entry,
+                func.blocks.len()
+            ),
             span: None,
         });
     }
@@ -47,7 +51,11 @@ fn verify_function(func: &Function) -> Result<(), IrError> {
     // Check terminators reference valid blocks
     for block in &func.blocks {
         match &block.terminator {
-            Terminator::Branch { then_block, else_block, .. } => {
+            Terminator::Branch {
+                then_block,
+                else_block,
+                ..
+            } => {
                 if *then_block >= func.blocks.len() || *else_block >= func.blocks.len() {
                     return Err(IrError::ControlFlowError {
                         msg: "Branch target out of range".into(),

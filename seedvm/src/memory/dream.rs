@@ -11,7 +11,7 @@
 //!   4. Compress — reduce storage footprint (10:1).
 //!   5. Prune — apply Ebbinghaus forgetting curve.
 
-use super::{MemoryLayer, MemoryGovernor, MemoryEntry};
+use super::{MemoryEntry, MemoryGovernor, MemoryLayer};
 use crate::value::Value;
 use std::collections::HashMap;
 
@@ -87,8 +87,8 @@ impl DreamScheduler {
             match phase {
                 DreamPhase::Review => {
                     // Count observations across episodic and working layers
-                    record.observations_reviewed =
-                        governor.layers[MemoryLayer::Working as usize].len()
+                    record.observations_reviewed = governor.layers[MemoryLayer::Working as usize]
+                        .len()
                         + governor.layers[MemoryLayer::Episodic as usize].len();
                 }
                 DreamPhase::Resolve => {
@@ -126,14 +126,14 @@ impl DreamScheduler {
                 DreamPhase::Prune => {
                     // Apply decay to all layers
                     let half_lives: [f64; 8] = [
-                        1.0,   // L0 Working: very fast decay (session)
-                        30.0,  // L1 Episodic
-                        90.0,  // L2 Semantic
-                        180.0, // L3 Procedural
-                        60.0,  // L4 Prospective
-                        45.0,  // L5 Federated
+                        1.0,      // L0 Working: very fast decay (session)
+                        30.0,     // L1 Episodic
+                        90.0,     // L2 Semantic
+                        180.0,    // L3 Procedural
+                        60.0,     // L4 Prospective
+                        45.0,     // L5 Federated
                         f64::MAX, // L6 Identity: never decay
-                        365.0, // L7 Provenance Index
+                        365.0,    // L7 Provenance Index
                     ];
                     for layer_idx in 0..8u8 {
                         if let Ok(layer) = MemoryLayer::try_from(layer_idx) {

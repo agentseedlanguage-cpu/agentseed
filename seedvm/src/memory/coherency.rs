@@ -33,7 +33,8 @@ pub struct CacheLine {
 // ── MESI controller ──
 
 /// A MESI‑inspired coherence controller for multi‑agent memory.
-#[derive(Debug)] pub struct MesiController {
+#[derive(Debug)]
+pub struct MesiController {
     /// Cache lines indexed by key.
     lines: HashMap<String, CacheLine>,
     /// Peers that share each key (for invalidation broadcasts).
@@ -42,7 +43,10 @@ pub struct CacheLine {
 
 impl MesiController {
     pub fn new() -> Self {
-        Self { lines: HashMap::new(), shared_by: HashMap::new() }
+        Self {
+            lines: HashMap::new(),
+            shared_by: HashMap::new(),
+        }
     }
 
     /// Read a key locally. Transitions state as needed.
@@ -65,7 +69,12 @@ impl MesiController {
         }
         self.lines.insert(
             key.to_string(),
-            CacheLine { key: key.to_string(), value, state: MesiState::Modified, layer },
+            CacheLine {
+                key: key.to_string(),
+                value,
+                state: MesiState::Modified,
+                layer,
+            },
         );
         self.shared_by.insert(key.to_string(), HashSet::new());
     }
@@ -79,7 +88,10 @@ impl MesiController {
 
     /// Share a key with a peer.
     pub fn share_with(&mut self, key: &str, peer_id: &str) {
-        self.shared_by.entry(key.to_string()).or_default().insert(peer_id.to_string());
+        self.shared_by
+            .entry(key.to_string())
+            .or_default()
+            .insert(peer_id.to_string());
         if let Some(line) = self.lines.get_mut(key) {
             if line.state == MesiState::Exclusive || line.state == MesiState::Modified {
                 line.state = MesiState::Shared;
@@ -124,7 +136,8 @@ impl CrdtManager {
     pub fn merge(&mut self, key: &str, remote_counter: u64, remote_value: Value) {
         let local_counter = self.store.get(key).map(|(c, _)| *c).unwrap_or(0);
         if remote_counter > local_counter {
-            self.store.insert(key.to_string(), (remote_counter, remote_value));
+            self.store
+                .insert(key.to_string(), (remote_counter, remote_value));
         }
     }
 
@@ -140,7 +153,8 @@ impl CrdtManager {
 ///
 /// Tracks which keys have been modified since the last sync
 /// and exchanges them with peers.
-#[derive(Debug)] pub struct GossipManager {
+#[derive(Debug)]
+pub struct GossipManager {
     /// Keys modified since last full sync.
     dirty_keys: HashSet<String>,
     /// Known peers.
@@ -149,7 +163,10 @@ impl CrdtManager {
 
 impl GossipManager {
     pub fn new() -> Self {
-        Self { dirty_keys: HashSet::new(), peers: Vec::new() }
+        Self {
+            dirty_keys: HashSet::new(),
+            peers: Vec::new(),
+        }
     }
 
     /// Mark a key as dirty (modified locally).
@@ -174,14 +191,17 @@ impl GossipManager {
 
     /// Receive dirty keys from a peer.
     pub fn receive_dirty(&mut self, keys: &[String]) {
-        for k in keys { self.dirty_keys.insert(k.clone()); }
+        for k in keys {
+            self.dirty_keys.insert(k.clone());
+        }
     }
 }
 
 // ── CoherencyController ──
 
 /// Top‑level coherency controller combining MESI, CRDT, and gossip.
-#[derive(Debug)]pub struct CoherencyController {
+#[derive(Debug)]
+pub struct CoherencyController {
     pub mesi: MesiController,
     pub crdt: CrdtManager,
     pub gossip: GossipManager,

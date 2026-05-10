@@ -21,29 +21,29 @@
 //!   - ChronoMerkle — time‑aware Merkle trees
 //!   - Automerge — CRDT for federated memory
 
-pub mod layer;
-pub mod governance;
+pub mod adaptive;
 pub mod coherency;
-pub mod merkle;
+pub mod dream;
 pub mod dual;
 pub mod episodic;
-pub mod dream;
-pub mod adaptive;
 pub mod evolutionary;
+pub mod governance;
+pub mod layer;
+pub mod merkle;
 
-pub use layer::MemoryLayer;
-pub use governance::MemoryGovernor;
-pub use coherency::CoherencyController;
-pub use merkle::MerkleIntegrityManager;
-pub use dual::DualProcessController;
-pub use dream::DreamScheduler;
-pub use episodic::EpisodicReconstructor;
 pub use adaptive::AdaptiveSelector;
+pub use coherency::CoherencyController;
+pub use dream::DreamScheduler;
+pub use dual::DualProcessController;
+pub use episodic::EpisodicReconstructor;
 pub use evolutionary::PrismSubstrate;
+pub use governance::MemoryGovernor;
+pub use layer::MemoryLayer;
+pub use merkle::MerkleIntegrityManager;
 
-use std::collections::HashMap;
-use crate::value::Value;
 use crate::state::{VMState, VmError};
+use crate::value::Value;
+use std::collections::HashMap;
 
 /// A key‑value entry stored in a memory layer.
 #[derive(Debug, Clone)]
@@ -72,7 +72,9 @@ pub enum ConsentLevel {
 }
 
 impl Default for ConsentLevel {
-    fn default() -> Self { Self::Private }
+    fn default() -> Self {
+        Self::Private
+    }
 }
 
 impl MemoryEntry {

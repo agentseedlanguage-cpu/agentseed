@@ -5,14 +5,14 @@
 //! subsystem, the provenance graph, the effect accumulator, and the
 //! deterministic RNG state.
 
-use crate::value::Value;
+use crate::memory::{CoherencyController, ConsentLevel, MemoryGovernor, MemoryLayer};
 use crate::rng::DeterministicRng;
 use crate::schedule::ScheduleTrace;
-use crate::memory::{MemoryGovernor, CoherencyController, MemoryLayer, ConsentLevel};
+use crate::value::Value;
+use miette::Diagnostic;
 use seedc::ir::Module;
 use std::collections::HashMap;
 use thiserror::Error;
-use miette::Diagnostic;
 
 // ── VMState ──
 
@@ -147,7 +147,9 @@ impl VMState {
     // ── Stack helpers ──
 
     /// Push a value onto the operand stack.
-    pub fn push(&mut self, v: Value) { self.stack.push(v); }
+    pub fn push(&mut self, v: Value) {
+        self.stack.push(v);
+    }
 
     /// Pop a value from the operand stack.
     pub fn pop(&mut self) -> Result<Value, VmError> {
@@ -155,7 +157,9 @@ impl VMState {
     }
 
     /// Peek at the top of the stack without removing.
-    pub fn peek(&self) -> Option<&Value> { self.stack.last() }
+    pub fn peek(&self) -> Option<&Value> {
+        self.stack.last()
+    }
 
     /// Pop two values from the stack, returning (top, second).
     pub fn pop2(&mut self) -> Result<(Value, Value), VmError> {
@@ -192,7 +196,8 @@ impl VMState {
     /// Write to a memory layer through the governor.
     pub fn mem_store(&mut self, layer: u8, key: String, value: Value) -> Result<(), VmError> {
         let layer = MemoryLayer::try_from(layer)?;
-        self.governor.write(layer, key, value, ConsentLevel::default())
+        self.governor
+            .write(layer, key, value, ConsentLevel::default())
     }
 }
 
@@ -214,7 +219,11 @@ pub enum VmError {
 
     #[error("invalid instruction at ({func}:{blk}:{instr})")]
     #[diagnostic(help("The bytecode contained an unrecognised instruction."))]
-    InvalidInstruction { func: usize, blk: usize, instr: usize },
+    InvalidInstruction {
+        func: usize,
+        blk: usize,
+        instr: usize,
+    },
 
     #[error("invalid memory access: layer {layer} out of range")]
     #[diagnostic(help("Memory layers are indexed 0–7."))]

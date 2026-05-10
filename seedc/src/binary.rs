@@ -23,8 +23,10 @@ struct Header {
 
 /// Serialize a module to a vector of bytes.
 pub fn serialize(module: &Module) -> Result<Vec<u8>, IrError> {
-    let payload = bincode::serialize(module)
-        .map_err(|e| IrError::ControlFlowError { msg: format!("Serialization error: {}", e), span: None })?;
+    let payload = bincode::serialize(module).map_err(|e| IrError::ControlFlowError {
+        msg: format!("Serialization error: {}", e),
+        span: None,
+    })?;
     let checksum = crc32fast::hash(&payload);
     let header = Header {
         magic: MAGIC,
@@ -34,7 +36,12 @@ pub fn serialize(module: &Module) -> Result<Vec<u8>, IrError> {
         module_size: payload.len() as u64,
     };
     let mut out = Vec::new();
-    out.extend(bincode::serialize(&header).map_err(|e| IrError::ControlFlowError { msg: format!("Header serialization error: {}", e), span: None })?);
+    out.extend(
+        bincode::serialize(&header).map_err(|e| IrError::ControlFlowError {
+            msg: format!("Header serialization error: {}", e),
+            span: None,
+        })?,
+    );
     out.extend(payload);
     Ok(out)
 }
@@ -42,23 +49,42 @@ pub fn serialize(module: &Module) -> Result<Vec<u8>, IrError> {
 /// Deserialize a module from bytes.
 pub fn deserialize(data: &[u8]) -> Result<Module, IrError> {
     if data.len() < std::mem::size_of::<Header>() {
-        return Err(IrError::ControlFlowError { msg: "File too small".into(), span: None });
+        return Err(IrError::ControlFlowError {
+            msg: "File too small".into(),
+            span: None,
+        });
     }
-    let header: Header = bincode::deserialize(&data[..std::mem::size_of::<Header>()])
-        .map_err(|e| IrError::ControlFlowError { msg: format!("Header deserialization error: {}", e), span: None })?;
+    let header: Header =
+        bincode::deserialize(&data[..std::mem::size_of::<Header>()]).map_err(|e| {
+            IrError::ControlFlowError {
+                msg: format!("Header deserialization error: {}", e),
+                span: None,
+            }
+        })?;
     if header.magic != MAGIC {
-        return Err(IrError::ControlFlowError { msg: "Invalid magic bytes".into(), span: None });
+        return Err(IrError::ControlFlowError {
+            msg: "Invalid magic bytes".into(),
+            span: None,
+        });
     }
     if header.version_major != VERSION.0 {
-        return Err(IrError::ControlFlowError { msg: format!("Unsupported major version: {}", header.version_major), span: None });
+        return Err(IrError::ControlFlowError {
+            msg: format!("Unsupported major version: {}", header.version_major),
+            span: None,
+        });
     }
     let payload = &data[std::mem::size_of::<Header>()..];
     let checksum = crc32fast::hash(payload);
     if checksum != header.checksum {
-        return Err(IrError::ControlFlowError { msg: "Checksum mismatch".into(), span: None });
+        return Err(IrError::ControlFlowError {
+            msg: "Checksum mismatch".into(),
+            span: None,
+        });
     }
-    bincode::deserialize(payload)
-        .map_err(|e| IrError::ControlFlowError { msg: format!("Deserialization error: {}", e), span: None })
+    bincode::deserialize(payload).map_err(|e| IrError::ControlFlowError {
+        msg: format!("Deserialization error: {}", e),
+        span: None,
+    })
 }
 
 // Re‑export IrError from ir.rs for convenience

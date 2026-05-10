@@ -12,8 +12,8 @@
 //!   - MCP Go SDK v1.4.0 — OAuth support
 //!   - MCPShield defense‑in‑depth (MCPS cryptographic layer)
 
-use std::collections::HashMap;
 use crate::value::Value;
+use std::collections::HashMap;
 
 // ── MCP Types ──
 
@@ -68,11 +68,17 @@ pub struct MCPPromptArgument {
 /// MCP server lifecycle hooks.
 pub trait MCPLifecycle: Send + Sync {
     /// Called when the server starts.
-    fn init(&mut self) -> Result<(), String> { Ok(()) }
+    fn init(&mut self) -> Result<(), String> {
+        Ok(())
+    }
     /// Called when the server shuts down.
-    fn shutdown(&mut self) -> Result<(), String> { Ok(()) }
+    fn shutdown(&mut self) -> Result<(), String> {
+        Ok(())
+    }
     /// Called periodically for health checks.
-    fn health(&self) -> bool { true }
+    fn health(&self) -> bool {
+        true
+    }
 }
 
 // ── MCP Server ──
@@ -154,8 +160,14 @@ impl MCPServer {
     }
 
     /// Call a tool by name.
-    pub fn call_tool(&self, name: &str, args: &serde_json::Value) -> Result<serde_json::Value, String> {
-        let tool = self.tools.get(name)
+    pub fn call_tool(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let tool = self
+            .tools
+            .get(name)
             .ok_or_else(|| format!("Tool '{}' not found", name))?;
 
         // Validate input against schema
@@ -198,7 +210,9 @@ pub struct ClientConnection {
 
 impl MCPClient {
     pub fn new() -> Self {
-        Self { connections: HashMap::new() }
+        Self {
+            connections: HashMap::new(),
+        }
     }
 
     /// Connect to an MCP server and discover its capabilities.
@@ -208,19 +222,29 @@ impl MCPClient {
         // 2. List tools
         // 3. List resources
         // 4. List prompts
-        self.connections.insert(server_name.to_string(), ClientConnection {
-            server_name: server_name.to_string(),
-            endpoint: endpoint.to_string(),
-            established: true,
-            tools: vec![],
-            resources: vec![],
-        });
+        self.connections.insert(
+            server_name.to_string(),
+            ClientConnection {
+                server_name: server_name.to_string(),
+                endpoint: endpoint.to_string(),
+                established: true,
+                tools: vec![],
+                resources: vec![],
+            },
+        );
         Ok(())
     }
 
     /// Call a tool on a connected server.
-    pub fn call_tool(&self, server: &str, tool: &str, args: &serde_json::Value) -> Result<serde_json::Value, String> {
-        let conn = self.connections.get(server)
+    pub fn call_tool(
+        &self,
+        server: &str,
+        tool: &str,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let conn = self
+            .connections
+            .get(server)
             .ok_or_else(|| format!("Not connected to server '{}'", server))?;
         if !conn.established {
             return Err(format!("Connection to '{}' not established", server));

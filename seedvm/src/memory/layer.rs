@@ -64,16 +64,22 @@ pub enum LayerStore {
 
 impl LayerStore {
     /// Create a new append‑only log.
-    pub fn new_append_only() -> Self { Self::AppendOnly(Vec::new()) }
+    pub fn new_append_only() -> Self {
+        Self::AppendOnly(Vec::new())
+    }
 
     /// Create a new mutable store.
-    pub fn new_mutable() -> Self { Self::Mutable(HashMap::new()) }
+    pub fn new_mutable() -> Self {
+        Self::Mutable(HashMap::new())
+    }
 
     /// Insert an entry into the store.
     pub fn insert(&mut self, entry: MemoryEntry) {
         match self {
             Self::AppendOnly(log) => log.push(entry),
-            Self::Mutable(map) => { map.insert(entry.key.clone(), entry); }
+            Self::Mutable(map) => {
+                map.insert(entry.key.clone(), entry);
+            }
         }
     }
 
@@ -95,7 +101,9 @@ impl LayerStore {
 
     /// Remove an entry by key (only meaningful for mutable stores).
     pub fn remove(&mut self, key: &str) {
-        if let Self::Mutable(map) = self { map.remove(key); }
+        if let Self::Mutable(map) = self {
+            map.remove(key);
+        }
     }
 
     /// Return the number of entries.

@@ -20,7 +20,10 @@ struct Lowerer {
 
 impl Lowerer {
     fn new() -> Self {
-        Self { module: Module::new(), current_func: None }
+        Self {
+            module: Module::new(),
+            current_func: None,
+        }
     }
 
     fn lower_program(&mut self, program: &Program) {
@@ -58,11 +61,7 @@ impl Lowerer {
             Some(ty) => self.convert_type(ty),
             None => IrType::Void,
         };
-        let mut func = Function::new(
-            f.name.name.clone(),
-            (0..f.params.len()).collect(),
-            ret_ty,
-        );
+        let mut func = Function::new(f.name.name.clone(), (0..f.params.len()).collect(), ret_ty);
         let fid = self.module.add_function(func);
         self.current_func = Some(fid);
         if let Some(body) = &f.body {
@@ -94,7 +93,10 @@ impl Lowerer {
                 let val = self.lower_expr(&l.init, blk);
                 let func = self.func();
                 let var = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(var), val]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(var), val]),
+                );
                 Some(Operand::Var(var))
             }
             Stmt::Expr(e) => Some(self.lower_expr(e, blk)),
@@ -146,9 +148,15 @@ impl Lowerer {
                 if ir_op == Opcode::Sub {
                     let func = self.func();
                     let zero = func.new_var();
-                    func.push_instr(blk, Instr::new(Opcode::Const, Some(zero), vec![Operand::Int(0)]));
+                    func.push_instr(
+                        blk,
+                        Instr::new(Opcode::Const, Some(zero), vec![Operand::Int(0)]),
+                    );
                     let dest = func.new_var();
-                    func.push_instr(blk, Instr::new(Opcode::Sub, Some(dest), vec![Operand::Var(zero), operand]));
+                    func.push_instr(
+                        blk,
+                        Instr::new(Opcode::Sub, Some(dest), vec![Operand::Var(zero), operand]),
+                    );
                     Operand::Var(dest)
                 } else {
                     let func = self.func();
@@ -162,7 +170,10 @@ impl Lowerer {
             ExprKind::Call(callee, args) => {
                 if let ExprKind::Ident(ident) = &callee.kind {
                     if ident.name == "print" {
-                        let arg_val = args.first().map(|a| self.lower_expr(a, blk)).unwrap_or(Operand::Null);
+                        let arg_val = args
+                            .first()
+                            .map(|a| self.lower_expr(a, blk))
+                            .unwrap_or(Operand::Null);
                         let func = self.func();
                         func.push_instr(blk, Instr::new(Opcode::Call, None, vec![arg_val.clone()]));
                         return arg_val;
@@ -170,7 +181,9 @@ impl Lowerer {
                 }
                 let func_op = self.lower_expr(callee, blk);
                 let mut ops = vec![func_op];
-                for a in args { ops.push(self.lower_expr(a, blk)); }
+                for a in args {
+                    ops.push(self.lower_expr(a, blk));
+                }
                 let func = self.func();
                 let dest = func.new_var();
                 func.push_instr(blk, Instr::new(Opcode::Call, Some(dest), ops));
@@ -181,7 +194,9 @@ impl Lowerer {
             ExprKind::Method(obj, _name, args) => {
                 let obj_val = self.lower_expr(obj, blk);
                 let mut ops = vec![Operand::Var(0), obj_val];
-                for a in args { ops.push(self.lower_expr(a, blk)); }
+                for a in args {
+                    ops.push(self.lower_expr(a, blk));
+                }
                 let func = self.func();
                 let dest = func.new_var();
                 func.push_instr(blk, Instr::new(Opcode::Call, Some(dest), ops));
@@ -194,7 +209,10 @@ impl Lowerer {
                 let field_idx = Operand::String(0);
                 let func = self.func();
                 let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Load, Some(dest), vec![obj_val, field_idx]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::Load, Some(dest), vec![obj_val, field_idx]),
+                );
                 Operand::Var(dest)
             }
 
@@ -203,7 +221,10 @@ impl Lowerer {
                 let idx_val = self.lower_expr(index, blk);
                 let func = self.func();
                 let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Load, Some(dest), vec![obj_val, idx_val]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::Load, Some(dest), vec![obj_val, idx_val]),
+                );
                 Operand::Var(dest)
             }
 
@@ -240,7 +261,10 @@ impl Lowerer {
                 let val = self.lower_expr(&l.init, blk);
                 let func = self.func();
                 let var = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(var), val]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(var), val]),
+                );
                 Operand::Var(var)
             }
 
@@ -248,14 +272,19 @@ impl Lowerer {
             ExprKind::Closure(_) => {
                 let func = self.func();
                 let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), vec![Operand::Func(0)]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::Const, Some(dest), vec![Operand::Func(0)]),
+                );
                 Operand::Var(dest)
             }
 
             // ── Compound literals ──
             ExprKind::Tuple(elems) | ExprKind::Array(elems) => {
                 let mut ops = vec![Operand::Int(elems.len() as i64)];
-                for elem in elems { ops.push(self.lower_expr(elem, blk)); }
+                for elem in elems {
+                    ops.push(self.lower_expr(elem, blk));
+                }
                 let func = self.func();
                 let dest = func.new_var();
                 func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), ops));
@@ -265,7 +294,9 @@ impl Lowerer {
             ExprKind::StructLit(ty, fields) => {
                 let irty = self.convert_type(ty);
                 let mut ops = vec![Operand::Type(irty)];
-                for (_, val) in fields { ops.push(self.lower_expr(val, blk)); }
+                for (_, val) in fields {
+                    ops.push(self.lower_expr(val, blk));
+                }
                 let func = self.func();
                 let dest = func.new_var();
                 func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), ops));
@@ -275,7 +306,11 @@ impl Lowerer {
             ExprKind::EnumLit(ty, _variant, payload) => {
                 let irty = self.convert_type(ty);
                 let mut ops = vec![Operand::Type(irty), Operand::String(0)];
-                if let Some(p) = payload { for val in p { ops.push(self.lower_expr(val, blk)); } }
+                if let Some(p) = payload {
+                    for val in p {
+                        ops.push(self.lower_expr(val, blk));
+                    }
+                }
                 let func = self.func();
                 let dest = func.new_var();
                 func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), ops));
@@ -302,7 +337,10 @@ impl Lowerer {
             ExprKind::HereDoc(_) => {
                 let func = self.func();
                 let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), vec![Operand::String(0)]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::Const, Some(dest), vec![Operand::String(0)]),
+                );
                 Operand::Var(dest)
             }
             ExprKind::HereString(expr) => self.lower_expr(expr, blk),
@@ -311,7 +349,10 @@ impl Lowerer {
             ExprKind::Assignment(_, _, rhs) => {
                 let r = self.lower_expr(rhs, blk);
                 let func = self.func();
-                func.push_instr(blk, Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(0), r.clone()]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(0), r.clone()]),
+                );
                 r
             }
 
@@ -330,7 +371,10 @@ impl Lowerer {
                 let irty = self.convert_type(ty);
                 let func = self.func();
                 let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), vec![Operand::Type(irty), val]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::Const, Some(dest), vec![Operand::Type(irty), val]),
+                );
                 Operand::Var(dest)
             }
 
@@ -347,7 +391,10 @@ impl Lowerer {
                 let val = self.lower_expr(expr, blk);
                 let func = self.func();
                 let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::ConfidenceAsk, Some(dest), vec![val]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::ConfidenceAsk, Some(dest), vec![val]),
+                );
                 Operand::Var(dest)
             }
 
@@ -361,7 +408,14 @@ impl Lowerer {
                 };
                 let func = self.func();
                 let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::ConfidenceGate, Some(dest), vec![Operand::Float(threshold), val]));
+                func.push_instr(
+                    blk,
+                    Instr::new(
+                        Opcode::ConfidenceGate,
+                        Some(dest),
+                        vec![Operand::Float(threshold), val],
+                    ),
+                );
                 Operand::Var(dest)
             }
 
@@ -376,7 +430,14 @@ impl Lowerer {
                 };
                 let func = self.func();
                 let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Infer, Some(dest), vec![Operand::Int(budget as i64), val]));
+                func.push_instr(
+                    blk,
+                    Instr::new(
+                        Opcode::Infer,
+                        Some(dest),
+                        vec![Operand::Int(budget as i64), val],
+                    ),
+                );
                 Operand::Var(dest)
             }
 
@@ -385,13 +446,17 @@ impl Lowerer {
                 let val = self.lower_expr(scrutinee, blk);
                 let func = self.func();
                 func.push_instr(blk, Instr::new(Opcode::Discharge, None, vec![val]));
-                for (_thresh, body) in thresholds { self.lower_block(body, blk); }
+                for (_thresh, body) in thresholds {
+                    self.lower_block(body, blk);
+                }
                 Operand::Null
             }
 
             ExprKind::Perform(_effect, args) => {
                 let mut ops = vec![Operand::String(0)];
-                for a in args { ops.push(self.lower_expr(a, blk)); }
+                for a in args {
+                    ops.push(self.lower_expr(a, blk));
+                }
                 let func = self.func();
                 let dest = func.new_var();
                 func.push_instr(blk, Instr::new(Opcode::Perform, Some(dest), ops));
@@ -417,7 +482,10 @@ impl Lowerer {
             ExprKind::Signal(_) => {
                 let func = self.func();
                 let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), vec![Operand::String(0)]));
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::Const, Some(dest), vec![Operand::String(0)]),
+                );
                 Operand::Var(dest)
             }
 
@@ -487,14 +555,26 @@ impl Lowerer {
         drop(func);
         {
             let func = self.func();
-            func.set_terminator(cur_blk, Terminator::Branch { cond, then_block: then_blk, else_block: else_blk });
+            func.set_terminator(
+                cur_blk,
+                Terminator::Branch {
+                    cond,
+                    then_block: then_blk,
+                    else_block: else_blk,
+                },
+            );
         }
         self.lower_block(&i.then_branch, then_blk);
         self.close_block(then_blk, merge_blk);
         if let Some(eb) = &i.else_branch {
             match &**eb {
-                ElseBranch::Block(b) => { self.lower_block(b, else_blk); self.close_block(else_blk, merge_blk); }
-                ElseBranch::If(inner) => { self.lower_if(inner, else_blk); }
+                ElseBranch::Block(b) => {
+                    self.lower_block(b, else_blk);
+                    self.close_block(else_blk, merge_blk);
+                }
+                ElseBranch::If(inner) => {
+                    self.lower_if(inner, else_blk);
+                }
             }
         } else {
             self.close_block(else_blk, merge_blk);
@@ -547,7 +627,14 @@ impl Lowerer {
         let cond = self.lower_expr(&w.cond, header_blk);
         {
             let func = self.func();
-            func.set_terminator(header_blk, Terminator::Branch { cond, then_block: body_blk, else_block: exit_blk });
+            func.set_terminator(
+                header_blk,
+                Terminator::Branch {
+                    cond,
+                    then_block: body_blk,
+                    else_block: exit_blk,
+                },
+            );
         }
         self.lower_block(&w.body, body_blk);
         let func = self.func();

@@ -242,9 +242,9 @@ fn cmd_build(args: BuildArgs) -> miette::Result<()> {
     let binary = seedc::compile(&source)
         .wrap_err_with(|| format!("failed to compile `{}`", args.source.display()))?;
 
-    let out_path = args.output.unwrap_or_else(|| {
-        args.source.with_extension("aslb")
-    });
+    let out_path = args
+        .output
+        .unwrap_or_else(|| args.source.with_extension("aslb"));
 
     std::fs::write(&out_path, &binary)
         .into_diagnostic()
@@ -381,8 +381,7 @@ fn cli_is_quiet() -> bool {
 /// Generate a placeholder grammar string for the requested format.
 fn generate_grammar(format: GrammarFormat) -> String {
     match format {
-        GrammarFormat::Gbnf => {
-            r#"root ::= item*
+        GrammarFormat::Gbnf => r#"root ::= item*
 
 item ::= "agent" identifier "{" member* "}"
        | "fn" identifier "(" params ")" ("->" type)? block
@@ -402,19 +401,14 @@ call ::= expr "(" args ")"
 binary ::= expr op expr
 unary ::= op expr
 "#
-            .into()
-        }
-        GrammarFormat::Ebnf => {
-            String::from("program = { item* } ;\nitem = { ... } ;\n")
-        }
-        GrammarFormat::JsonSchema => {
-            serde_json::json!({
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "title": "AGENT-SEED v15.2 grammar",
-                "type": "object"
-            })
-            .to_string()
-        }
+        .into(),
+        GrammarFormat::Ebnf => String::from("program = { item* } ;\nitem = { ... } ;\n"),
+        GrammarFormat::JsonSchema => serde_json::json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "AGENT-SEED v15.2 grammar",
+            "type": "object"
+        })
+        .to_string(),
     }
 }
 
@@ -439,10 +433,8 @@ mod tests {
 
     #[test]
     fn test_cli_parse_build_output() {
-        let cli = Cli::try_parse_from([
-            "seed", "-vv", "build", "hello.seed", "-o", "hello.aslb",
-        ])
-        .unwrap();
+        let cli = Cli::try_parse_from(["seed", "-vv", "build", "hello.seed", "-o", "hello.aslb"])
+            .unwrap();
         assert_eq!(cli.verbose, 2);
         match cli.command {
             Commands::Build(args) => {
@@ -455,10 +447,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_run() {
-        let cli = Cli::try_parse_from([
-            "seed", "run", "hello.seed", "--", "--agent-arg",
-        ])
-        .unwrap();
+        let cli = Cli::try_parse_from(["seed", "run", "hello.seed", "--", "--agent-arg"]).unwrap();
         match cli.command {
             Commands::Run(args) => {
                 assert_eq!(args.source, PathBuf::from("hello.seed"));

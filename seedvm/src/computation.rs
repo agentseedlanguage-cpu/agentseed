@@ -11,7 +11,7 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Computation {
-    pub value: Box<Value>,     // <-- CHANGE THIS LINE
+    pub value: Box<Value>, // <-- CHANGE THIS LINE
     pub uncertainty_lo: f64,
     pub uncertainty_hi: f64,
     pub taint_influence: f64,
@@ -106,8 +106,8 @@ impl Computation {
     }
 
     pub fn into_value(self) -> Value {
-    *self.value
-}
+        *self.value
+    }
 }
 
 impl fmt::Display for Computation {

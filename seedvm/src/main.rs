@@ -23,7 +23,7 @@ use tracing_subscriber::EnvFilter;
     version,
     about = "AGENT-SEED v15.2 virtual machine",
     long_about = "Deterministic bytecode interpreter for .aslb modules.",
-    disable_help_subcommand = true,
+    disable_help_subcommand = true
 )]
 struct Cli {
     /// Verbosity: -v (info), -vv (debug), -vvv (trace)
@@ -101,7 +101,7 @@ fn main() -> miette::Result<()> {
 
 fn cmd_run(args: RunArgs, trace: bool) -> miette::Result<()> {
     let state = seedvm::run_file(&args.module, args.seed)
-    .wrap_err_with(|| format!("VM execution failed for `{}`", args.module.display()))?;
+        .wrap_err_with(|| format!("VM execution failed for `{}`", args.module.display()))?;
 
     if trace {
         println!("Schedule trace:\n{}", state.schedule_trace);
@@ -118,7 +118,7 @@ fn cmd_run(args: RunArgs, trace: bool) -> miette::Result<()> {
 
 fn cmd_prove(args: ProveArgs) -> miette::Result<()> {
     let state = seedvm::run_file(&args.module, args.seed)
-    .wrap_err_with(|| format!("VM execution failed for `{}`", args.module.display()))?;
+        .wrap_err_with(|| format!("VM execution failed for `{}`", args.module.display()))?;
 
     // Build a proof artifact from the execution
     let trace_text = format!("{}", state.schedule_trace);

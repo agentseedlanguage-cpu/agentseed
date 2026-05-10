@@ -59,7 +59,9 @@ fn main() -> miette::Result<()> {
         std::fs::write(&path, &formatted)
             .wrap_err_with(|| format!("failed to write to `{}`", path.display()))?;
     } else if cli.source == "-" {
-        io::stdout().write_all(formatted.as_bytes()).into_diagnostic()?;
+        io::stdout()
+            .write_all(formatted.as_bytes())
+            .into_diagnostic()?;
     } else {
         std::fs::write(&cli.source, &formatted)
             .wrap_err_with(|| format!("failed to write to `{}`", cli.source))?;
@@ -122,17 +124,31 @@ mod tests {
 
     #[test]
     fn test_format_simple() {
-        let cli = Cli { source: "-".into(), output: None, check: false, indent_width: 4, tabs: false, max_width: 100 };
+        let cli = Cli {
+            source: "-".into(),
+            output: None,
+            check: false,
+            indent_width: 4,
+            tabs: false,
+            max_width: 100,
+        };
         let input = "agent hello {\n    fn greet() {\n  let x = 1;\n    }\n}";
         let output = format_source(input, &cli).unwrap();
         assert!(output.contains("agent hello {"));
-        assert!(!output.contains("  let"));       // wrong indent removed
-        assert!(!output.contains("    let"));     // wrong indent removed
+        assert!(!output.contains("  let")); // wrong indent removed
+        assert!(!output.contains("    let")); // wrong indent removed
     }
 
     #[test]
     fn test_format_preserves_empty_lines() {
-        let cli = Cli { source: "-".into(), output: None, check: false, indent_width: 2, tabs: false, max_width: 100 };
+        let cli = Cli {
+            source: "-".into(),
+            output: None,
+            check: false,
+            indent_width: 2,
+            tabs: false,
+            max_width: 100,
+        };
         let input = "agent test {\n\n    fn run() {}\n}";
         let output = format_source(input, &cli).unwrap();
         assert!(output.lines().filter(|l| l.is_empty()).count() >= 1);

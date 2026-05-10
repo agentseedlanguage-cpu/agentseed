@@ -3,7 +3,7 @@
 //! Uses a `Peekable<Chars>` iterator and tracks byte positions for
 //! `miette::SourceSpan`.  The entry point is `tokenize(source)`.
 
-use crate::token::{Token, TokenKind, keyword_from_str};
+use crate::token::{keyword_from_str, Token, TokenKind};
 use crate::LexError;
 use miette::SourceSpan;
 use std::iter::Peekable;
@@ -20,7 +20,9 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, LexError> {
         let tok = lexer.next_token()?;
         let is_eof = tok.kind == TokenKind::Eof;
         tokens.push(tok);
-        if is_eof { break; }
+        if is_eof {
+            break;
+        }
     }
     Ok(tokens)
 }
@@ -51,13 +53,19 @@ impl<'a> Lexer<'a> {
     // ── Low‑level helpers ──
 
     /// Return the current byte offset as a `SourceSpan` start.
-    fn span_start(&self) -> usize { self.pos }
+    fn span_start(&self) -> usize {
+        self.pos
+    }
 
     /// Build a `SourceSpan` from a previously recorded start to current `self.pos`.
-    fn span(&self, start: usize) -> SourceSpan { (start..self.pos).into() }
+    fn span(&self, start: usize) -> SourceSpan {
+        (start..self.pos).into()
+    }
 
     /// Peek at the next character without consuming it.
-    fn peek(&mut self) -> Option<&char> { self.chars.peek() }
+    fn peek(&mut self) -> Option<&char> {
+        self.chars.peek()
+    }
 
     /// Consume and return the next character.
     fn advance(&mut self) -> Option<char> {
@@ -77,7 +85,9 @@ impl<'a> Lexer<'a> {
     fn skip_trivia(&mut self) {
         loop {
             match self.peek() {
-                Some(c) if c.is_whitespace() => { self.advance(); }
+                Some(c) if c.is_whitespace() => {
+                    self.advance();
+                }
                 Some('/') => {
                     let start = self.pos;
                     self.advance();
@@ -91,7 +101,10 @@ impl<'a> Lexer<'a> {
                             loop {
                                 match self.advance() {
                                     None => break, // unterminated — tracked later
-                                    Some('*') if self.peek() == Some(&'/') => { self.advance(); break; }
+                                    Some('*') if self.peek() == Some(&'/') => {
+                                        self.advance();
+                                        break;
+                                    }
                                     _ => continue,
                                 }
                             }
@@ -131,7 +144,14 @@ impl<'a> Lexer<'a> {
         let start = self.pos;
         let c = match self.advance() {
             Some(ch) => ch,
-            None => return Ok(Token::new(TokenKind::Eof, "", self.source_len, self.source_len)),
+            None => {
+                return Ok(Token::new(
+                    TokenKind::Eof,
+                    "",
+                    self.source_len,
+                    self.source_len,
+                ))
+            }
         };
 
         let kind = match c {
@@ -168,7 +188,10 @@ impl<'a> Lexer<'a> {
                 let content_start = self.pos; // after opening quote
                 self.take_while(|ch| ch != '"');
                 if self.peek().is_none() {
-                    return Err(LexError { ch: '"', span: (start..self.pos).into() });
+                    return Err(LexError {
+                        ch: '"',
+                        span: (start..self.pos).into(),
+                    });
                 }
                 let content_end = self.pos;
                 self.advance(); // consume closing '"'
@@ -196,7 +219,7 @@ impl<'a> Lexer<'a> {
             '>' => self.check_two('>', '=', TokenKind::Shr, TokenKind::GtEq, TokenKind::Gt),
             '&' => self.check_compound('&', TokenKind::AndAnd, TokenKind::And),
             // ── The fixed '|' arm ──
-                        '|' => {
+            '|' => {
                 if self.peek() == Some(&'|') {
                     self.advance();
                     TokenKind::OrOr
@@ -227,7 +250,13 @@ impl<'a> Lexer<'a> {
             ']' => TokenKind::RBracket,
             ',' => TokenKind::Comma,
             ';' => TokenKind::Semicolon,
-            '.' => self.check_two('.', '=', TokenKind::DotDot, TokenKind::DotDotEq, TokenKind::Dot),
+            '.' => self.check_two(
+                '.',
+                '=',
+                TokenKind::DotDot,
+                TokenKind::DotDotEq,
+                TokenKind::Dot,
+            ),
             '/' => self.check_compound('=', TokenKind::SlashEq, TokenKind::Slash),
             ':' => self.check_compound(':', TokenKind::ColonColon, TokenKind::Colon),
 
@@ -244,7 +273,12 @@ impl<'a> Lexer<'a> {
     }
 
     // ── Helper: check for two‑character operators ──
-    fn check_compound(&mut self, second: char, compound: TokenKind, single: TokenKind) -> TokenKind {
+    fn check_compound(
+        &mut self,
+        second: char,
+        compound: TokenKind,
+        single: TokenKind,
+    ) -> TokenKind {
         if self.peek() == Some(&second) {
             self.advance();
             compound
@@ -253,8 +287,14 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn check_two(&mut self, first: char, second: char,
-                 both: TokenKind, first_only: TokenKind, neither: TokenKind) -> TokenKind {
+    fn check_two(
+        &mut self,
+        first: char,
+        second: char,
+        both: TokenKind,
+        first_only: TokenKind,
+        neither: TokenKind,
+    ) -> TokenKind {
         if self.peek() == Some(&first) {
             self.advance();
             if self.peek() == Some(&second) {

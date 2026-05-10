@@ -81,17 +81,24 @@ impl Adapter for SeedDebugAdapter {
                 request.success(ResponseBody::SetBreakpoints(body))
             }
 
-            Command::Continue(_) => request.success(ResponseBody::Continue(types::ContinueResponseBody {
-                all_threads_continued: Some(true),
-            })),
+            Command::Continue(_) => {
+                request.success(ResponseBody::Continue(types::ContinueResponseBody {
+                    all_threads_continued: Some(true),
+                }))
+            }
 
             Command::Next(_) => request.success(ResponseBody::Next),
             Command::StepIn(_) => request.success(ResponseBody::StepIn),
             Command::StepOut(_) => request.success(ResponseBody::StepOut),
             Command::Pause(_) => request.success(ResponseBody::Pause),
-            Command::Threads => request.success(ResponseBody::Threads(types::ThreadsResponseBody {
-                threads: vec![types::Thread { id: 0, name: "agent-main".into() }],
-            })),
+            Command::Threads => {
+                request.success(ResponseBody::Threads(types::ThreadsResponseBody {
+                    threads: vec![types::Thread {
+                        id: 0,
+                        name: "agent-main".into(),
+                    }],
+                }))
+            }
 
             Command::StackTrace(ref _args) => {
                 request.success(ResponseBody::StackTrace(types::StackTraceResponseBody {

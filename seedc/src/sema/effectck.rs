@@ -13,7 +13,11 @@ pub struct EffectChecker {
 
 impl EffectChecker {
     pub fn new() -> Self {
-        Self { inside_discharge: false, accumulated: HashSet::new(), errors: Vec::new() }
+        Self {
+            inside_discharge: false,
+            accumulated: HashSet::new(),
+            errors: Vec::new(),
+        }
     }
 
     pub fn check_expr(&mut self, expr: &Expr) -> HashSet<Effect> {
@@ -21,10 +25,13 @@ impl EffectChecker {
             ExprKind::Perform(op, args) => {
                 let mut effects = HashSet::new();
                 effects.insert(Effect::Named(op.name.clone()));
-                for a in args { self.check_expr(a); }
+                for a in args {
+                    self.check_expr(a);
+                }
                 if !self.inside_discharge {
                     self.errors.push(TypeError::UndischargedEffect {
-                        effect: op.name.clone(), span: op.span,
+                        effect: op.name.clone(),
+                        span: op.span,
                     });
                 }
                 effects
@@ -35,7 +42,8 @@ impl EffectChecker {
                 self.inside_discharge = true;
                 for (_, body) in thresholds {
                     self.check_expr(&Box::new(ExprNode {
-                        kind: ExprKind::Block(body.clone()), span: expr.span
+                        kind: ExprKind::Block(body.clone()),
+                        span: expr.span,
                     }));
                 }
                 self.inside_discharge = prev;
@@ -43,7 +51,9 @@ impl EffectChecker {
             }
             ExprKind::Call(f, args) => {
                 self.check_expr(f);
-                for a in args { self.check_expr(a); }
+                for a in args {
+                    self.check_expr(a);
+                }
                 HashSet::new()
             }
             ExprKind::Binary(_, l, r) => {
@@ -55,18 +65,21 @@ impl EffectChecker {
             ExprKind::If(i) => {
                 self.check_expr(&i.cond);
                 self.check_expr(&Box::new(ExprNode {
-                    kind: ExprKind::Block(i.then_branch.clone()), span: i.span
+                    kind: ExprKind::Block(i.then_branch.clone()),
+                    span: i.span,
                 }));
                 if let Some(eb) = &i.else_branch {
                     match &**eb {
                         ElseBranch::Block(b) => {
                             self.check_expr(&Box::new(ExprNode {
-                                kind: ExprKind::Block(b.clone()), span: i.span
+                                kind: ExprKind::Block(b.clone()),
+                                span: i.span,
                             }));
                         }
                         ElseBranch::If(inner) => {
                             self.check_expr(&Box::new(ExprNode {
-                                kind: ExprKind::If(*inner.clone()), span: inner.span
+                                kind: ExprKind::If(*inner.clone()),
+                                span: inner.span,
                             }));
                         }
                     }
@@ -88,7 +101,10 @@ impl EffectChecker {
                 effects.insert(Effect::AgentSpawn);
                 effects
             }
-            ExprKind::Let(l) => { self.check_expr(&l.init); HashSet::new() }
+            ExprKind::Let(l) => {
+                self.check_expr(&l.init);
+                HashSet::new()
+            }
             // fix: `r` is the Option<Expr>, not a struct with `.expr`
             ExprKind::Return(r) => {
                 if let Some(e) = r {
@@ -103,7 +119,8 @@ impl EffectChecker {
     fn check_stmt(&mut self, stmt: &Stmt) -> HashSet<Effect> {
         match stmt {
             Stmt::Let(l) => self.check_expr(&Box::new(ExprNode {
-                kind: ExprKind::Let(l.clone()), span: l.span
+                kind: ExprKind::Let(l.clone()),
+                span: l.span,
             })),
             Stmt::Expr(e) => self.check_expr(e),
             Stmt::Return(r) => {
@@ -123,7 +140,8 @@ pub fn check_effects(program: Program) -> Result<Program, TypeError> {
         if let TopLevelItem::Fn(f) = item {
             if let Some(body) = &f.body {
                 checker.check_expr(&Box::new(ExprNode {
-                    kind: ExprKind::Block(body.clone()), span: f.span
+                    kind: ExprKind::Block(body.clone()),
+                    span: f.span,
                 }));
             }
         }

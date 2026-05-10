@@ -175,13 +175,26 @@ impl RegistryClient {
 
     async fn get_package(&self, name: &str, version: &str) -> Result<PackageInfo, String> {
         let url = format!("{}/api/v1/packages/{}/{}", self.base_url, name, version);
-        let resp = self.client.get(&url).send().await.map_err(|e| e.to_string())?;
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         resp.json().await.map_err(|e| e.to_string())
     }
 
     async fn search(&self, query: &str, limit: u32) -> Result<Vec<PackageInfo>, String> {
-        let url = format!("{}/api/v1/search?q={}&limit={}", self.base_url, query, limit);
-        let resp = self.client.get(&url).send().await.map_err(|e| e.to_string())?;
+        let url = format!(
+            "{}/api/v1/search?q={}&limit={}",
+            self.base_url, query, limit
+        );
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         resp.json().await.map_err(|e| e.to_string())
     }
 
@@ -224,7 +237,9 @@ struct DependencyResolver {
 }
 
 impl DependencyResolver {
-    fn new(registry: RegistryClient) -> Self { Self { registry } }
+    fn new(registry: RegistryClient) -> Self {
+        Self { registry }
+    }
 
     async fn resolve(
         &self,
@@ -233,13 +248,18 @@ impl DependencyResolver {
         let mut resolved = Vec::new();
         let mut seen = HashMap::new();
         for (name, req_str) in dependencies {
-            let req: semver::VersionReq = req_str.parse().map_err(|e| format!("invalid version requirement '{}': {}", req_str, e))?;
+            let req: semver::VersionReq = req_str
+                .parse()
+                .map_err(|e| format!("invalid version requirement '{}': {}", req_str, e))?;
             let info: PackageInfo = serde_json::from_str("{}").unwrap();
             let version: semver::Version = "1.0.0".parse().unwrap();
             if req.matches(&version) {
                 resolved.push(LockedPackage {
-                    name: name.clone(), version: version.to_string(),
-                    source: "registry.agentseed.org".into(), checksum: String::new(), dependencies: vec![],
+                    name: name.clone(),
+                    version: version.to_string(),
+                    source: "registry.agentseed.org".into(),
+                    checksum: String::new(),
+                    dependencies: vec![],
                 });
                 seen.insert(name.clone(), version);
             }
@@ -271,7 +291,11 @@ fn save_lockfile(path: &Path, lock: &LockFile) -> miette::Result<()> {
 async fn main() -> miette::Result<()> {
     let cli = Cli::parse();
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::new(match cli.verbose { 0 => "warn", 1 => "info", _ => "debug" }))
+        .with_env_filter(EnvFilter::new(match cli.verbose {
+            0 => "warn",
+            1 => "info",
+            _ => "debug",
+        }))
         .init();
 
     match cli.command {
@@ -291,12 +315,17 @@ async fn cmd_install(args: InstallArgs) -> miette::Result<()> {
     tracing::info!("Installing {} from {}", args.package, args.registry);
 
     let (name, version_req) = if let Some(at) = args.package.find('@') {
-        (args.package[..at].to_string(), args.package[at+1..].to_string())
+        (
+            args.package[..at].to_string(),
+            args.package[at + 1..].to_string(),
+        )
     } else {
         (args.package.clone(), "*".to_string())
     };
 
-    let info = registry.get_package(&name, &version_req).await
+    let info = registry
+        .get_package(&name, &version_req)
+        .await
         .map_err(|e| miette::miette!("Failed to fetch package: {}", e))?;
 
     tracing::info!("Resolved {}@{}", info.name, info.version);
@@ -304,7 +333,11 @@ async fn cmd_install(args: InstallArgs) -> miette::Result<()> {
     if !args.dry_run {
         let install_dir = dirs_home().join(".agentseed/packages");
         std::fs::create_dir_all(&install_dir).into_diagnostic()?;
-        tracing::info!("Package {} installed to {}", info.name, install_dir.display());
+        tracing::info!(
+            "Package {} installed to {}",
+            info.name,
+            install_dir.display()
+        );
     }
     Ok(())
 }
@@ -312,20 +345,30 @@ async fn cmd_install(args: InstallArgs) -> miette::Result<()> {
 async fn cmd_publish(args: PublishArgs) -> miette::Result<()> {
     let manifest = load_manifest(&args.path)
         .ok_or_else(|| miette::miette!("No Seed.toml found in {}", args.path.display()))?;
-    let pkg = manifest.package
+    let pkg = manifest
+        .package
         .ok_or_else(|| miette::miette!("Seed.toml is missing [package] section"))?;
 
-    let token = args.token.or_else(|| std::env::var("SEED_REGISTRY_TOKEN").ok());
+    let token = args
+        .token
+        .or_else(|| std::env::var("SEED_REGISTRY_TOKEN").ok());
     let registry = RegistryClient::new(&args.registry).with_token(&token.unwrap_or_default());
 
     let upload = PackageUpload {
-        name: pkg.name, version: pkg.version,
-        description: pkg.description, authors: pkg.authors,
-        readme: None, tarball: vec![], signature: vec![], public_key: vec![],
+        name: pkg.name,
+        version: pkg.version,
+        description: pkg.description,
+        authors: pkg.authors,
+        readme: None,
+        tarball: vec![],
+        signature: vec![],
+        public_key: vec![],
     };
 
     if !args.dry_run {
-        registry.publish(&upload).await
+        registry
+            .publish(&upload)
+            .await
             .map_err(|e| miette::miette!("Failed to publish: {}", e))?;
         tracing::info!("Published {}-{}", upload.name, upload.version);
     } else {
@@ -336,29 +379,41 @@ async fn cmd_publish(args: PublishArgs) -> miette::Result<()> {
 
 async fn cmd_search(args: SearchArgs) -> miette::Result<()> {
     let registry = RegistryClient::new("https://registry.agentseed.org");
-    let results = registry.search(&args.query, args.limit).await
+    let results = registry
+        .search(&args.query, args.limit)
+        .await
         .map_err(|e| miette::miette!("Search failed: {}", e))?;
     for pkg in &results {
-        println!("{}@{} — {}", pkg.name, pkg.version,
-            pkg.description.as_deref().unwrap_or("(no description)"));
+        println!(
+            "{}@{} — {}",
+            pkg.name,
+            pkg.version,
+            pkg.description.as_deref().unwrap_or("(no description)")
+        );
     }
     Ok(())
 }
 
 fn cmd_add(args: AddArgs) -> miette::Result<()> {
     let path = PathBuf::from(".");
-    let mut manifest = load_manifest(&path).unwrap_or(SeedManifest { package: None, dependencies: None });
+    let mut manifest = load_manifest(&path).unwrap_or(SeedManifest {
+        package: None,
+        dependencies: None,
+    });
     let deps = manifest.dependencies.get_or_insert(HashMap::new());
     deps.insert(args.package.clone(), args.version_req.clone());
     save_manifest(&path, &manifest)?;
-    tracing::info!("Added {} with requirement {}", args.package, args.version_req);
+    tracing::info!(
+        "Added {} with requirement {}",
+        args.package,
+        args.version_req
+    );
     Ok(())
 }
 
 fn cmd_remove(args: RemoveArgs) -> miette::Result<()> {
     let path = PathBuf::from(".");
-    let mut manifest = load_manifest(&path)
-        .ok_or_else(|| miette::miette!("No Seed.toml found"))?;
+    let mut manifest = load_manifest(&path).ok_or_else(|| miette::miette!("No Seed.toml found"))?;
     if let Some(deps) = &mut manifest.dependencies {
         deps.remove(&args.package);
         save_manifest(&path, &manifest)?;
@@ -369,14 +424,17 @@ fn cmd_remove(args: RemoveArgs) -> miette::Result<()> {
 
 fn cmd_init(args: InitArgs) -> miette::Result<()> {
     let name = args.name.unwrap_or_else(|| {
-        std::env::current_dir().ok()
+        std::env::current_dir()
+            .ok()
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or_else(|| "my-agent".to_string())
     });
     let manifest = SeedManifest {
         package: Some(PackageMeta {
-            name: name.clone(), version: "0.1.0".into(),
-            edition: Some("2027".into()), authors: Some(vec![]),
+            name: name.clone(),
+            version: "0.1.0".into(),
+            edition: Some("2027".into()),
+            authors: Some(vec![]),
             description: None,
         }),
         dependencies: Some(HashMap::new()),
