@@ -47,7 +47,7 @@ jobs:
         uses: actions-rust-lang/audit@v1
 
   msrv:
-    name: MSRV (1.80)
+    name: MSRV (1.85)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
