@@ -1131,10 +1131,11 @@ fn eof_err() -> ParseError {
     ParseError {
         expected: vec![TokenKind::Ident],
         found: TokenKind::Eof,
-        span: SourceSpan::new(start.into(), len)
+        span: SourceSpan::new(start.into(), len as usize)
     }
 }
 
+#[allow(clippy::unnecessary_cast)]
 fn parse_err(expected: Vec<TokenKind>, found: &Token) -> ParseError {
     ParseError {
         expected,

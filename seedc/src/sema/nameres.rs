@@ -40,6 +40,7 @@ pub struct Resolver {
 }
 
 impl Resolver {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let mut resolver = Self {
             scopes: vec![Scope::default()],

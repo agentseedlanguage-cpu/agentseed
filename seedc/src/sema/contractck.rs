@@ -8,6 +8,7 @@ pub struct ContractChecker {
 }
 
 impl ContractChecker {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self { errors: Vec::new() }
     }

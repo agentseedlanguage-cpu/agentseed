@@ -534,7 +534,7 @@ J. Glossary of Formal Semantics Terms
 
 
 # Adendum - make sure the following content is included in the user manula or on the ASL landing page
-# What AUTONOMOUS SYSTEMS LANGUAGE_ASL and the AGENT‑SEED INFRASTRUCTURE CAPABIITIES
+# AUTONOMOUS SYSTEMS LANGUAGE_ASL and the AGENT‑SEED INFRASTRUCTURE CAPABIITIES
 
 1. Composition that Cannot Multiply Errors — Computation<T, ε> and the Uncertain<T> Monad
 The O'Reilly analysis frames multi-agent systems as "probabilistic pipelines, where every unvalidated handoff multiplies uncertainty." Liu's λ_A calculus provides the formal foundation. AGENT‑SEED provides the concrete implementation.

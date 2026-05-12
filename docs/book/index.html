@@ -122,7 +122,7 @@ footer{border-top:1px solid var(--border);padding:40px 48px;display:flex;align-i
   <aside class="sidebar">
     <h2>Language Manual</h2>
     <ul class="toc">
-      <li><a href="#intro" class="toc-part">What ASL Can Do</a></li>
+      <li><a href="#intro" class="toc-part">Autonomous Systems Language - ASL</a></li>
       <li><a href="#part-I" class="toc-part">Part I – Getting Started</a>
         <ul class="toc-sub">
           <li><a href="#ch1">1. Installation</a></li>
@@ -161,22 +161,129 @@ footer{border-top:1px solid var(--border);padding:40px 48px;display:flex;align-i
           <li><a href="#ch26">26. Duration Literals</a></li>
         </ul>
       </li>
-      <li><a href="#part-IV" class="toc-part">Part IV – Type System</a></li>
-      <li><a href="#part-V" class="toc-part">Part V – Memory Architecture</a></li>
-      <li><a href="#part-VI" class="toc-part">Part VI – Heartbeat &amp; Dream</a></li>
-      <li><a href="#part-VII" class="toc-part">Part VII – Capability Security</a></li>
-      <li><a href="#part-VIII" class="toc-part">Part VIII – Taint &amp; Sanitization</a></li>
-      <li><a href="#part-IX" class="toc-part">Part IX – Confidence &amp; Inference</a></li>
-      <li><a href="#part-X" class="toc-part">Part X – Temporal Contracts</a></li>
-      <li><a href="#part-XI" class="toc-part">Part XI – Corrigibility</a></li>
-      <li><a href="#part-XII" class="toc-part">Part XII – Multi‑Agent Interaction</a></li>
-      <li><a href="#part-XIII" class="toc-part">Part XIII – Identity &amp; Provenance</a></li>
-      <li><a href="#part-XIV" class="toc-part">Part XIV – Self‑Evolution &amp; Training</a></li>
-      <li><a href="#part-XV" class="toc-part">Part XV – Grammar Stratification</a></li>
-      <li><a href="#part-XVI" class="toc-part">Part XVI – Context Budget</a></li>
-      <li><a href="#part-XVII" class="toc-part">Part XVII – TEE Governance</a></li>
-      <li><a href="#part-XVIII" class="toc-part">Part XVIII – ISA &amp; Binary Format</a></li>
-      <li><a href="#part-XIX" class="toc-part">Part XIX – Standard Library</a></li>
+      <li><a href="#part-IV" class="toc-part">Part IV – Type System</a>
+        <ul class="toc-sub">
+          <li><a href="#ch27">27. The Core Type System</a></li>
+          <li><a href="#ch28">28. Ownership and Borrowing</a></li>
+          <li><a href="#ch29">29. Effect Row Polymorphism</a></li>
+          <li><a href="#ch30">30. Capability Type Rules</a></li>
+          <li><a href="#ch31">31. Trust Lattice</a></li>
+          <li><a href="#ch32">32. Session Protocol Types</a></li>
+          <li><a href="#ch33">33. The Uncertain⟨T⟩ Axioms</a></li>
+          <li><a href="#ch34">34. The Computation⟨T, ε⟩ Monad</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-V" class="toc-part">Part V – Memory Architecture</a>
+        <ul class="toc-sub">
+          <li><a href="#ch35">35. Memory Hierarchy Overview</a></li>
+          <li><a href="#ch36">36. Layer Definitions and Schemas</a></li>
+          <li><a href="#ch37">37. Memory Operations API</a></li>
+          <li><a href="#ch38">38. Memory Governance</a></li>
+          <li><a href="#ch39">39. Memory Consistency</a></li>
+          <li><a href="#ch40">40. Dual‑Process Memory</a></li>
+          <li><a href="#ch41">41. Episodic Reconstruction</a></li>
+          <li><a href="#ch42">42. The Memory Cycle</a></li>
+          <li><a href="#ch43">43. Adaptive Memory (FluxMem)</a></li>
+          <li><a href="#ch44">44. Evolutionary Memory (PRISM)</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-VI" class="toc-part">Part VI – Heartbeat &amp; Dream</a>
+        <ul class="toc-sub">
+          <li><a href="#ch45">45. Heartbeat</a></li>
+          <li><a href="#ch46">46. Dream Cycle</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-VII" class="toc-part">Part VII – Capability Security</a>
+        <ul class="toc-sub">
+          <li><a href="#ch47">47. Capability Token Semantics</a></li>
+          <li><a href="#ch48">48. Capability Operations</a></li>
+          <li><a href="#ch49">49. Conjunction Safety</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-VIII" class="toc-part">Part VIII – Taint &amp; Sanitization</a>
+        <ul class="toc-sub">
+          <li><a href="#ch50">50. Taint Types</a></li>
+          <li><a href="#ch51">51. Sanitization</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-IX" class="toc-part">Part IX – Confidence &amp; Inference</a>
+        <ul class="toc-sub">
+          <li><a href="#ch52">52. Confidence Intervals and Gates</a></li>
+          <li><a href="#ch53">53. Inference with infer⟨T⟩</a></li>
+          <li><a href="#ch54">54. Model Routing and Think Profiles</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-X" class="toc-part">Part X – Temporal Contracts</a>
+        <ul class="toc-sub">
+          <li><a href="#ch55">55. LTL Syntax and Semantics</a></li>
+          <li><a href="#ch56">56. Temporal Contract Declaration</a></li>
+          <li><a href="#ch57">57. Runtime SMT Enforcement</a></li>
+          <li><a href="#ch58">58. AgentVerify Templates</a></li>
+          <li><a href="#ch59">59. StepShield Temporal Metrics</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-XI" class="toc-part">Part XI – Corrigibility</a>
+        <ul class="toc-sub">
+          <li><a href="#ch60">60. Corrigibility Heads (U1–U5)</a></li>
+          <li><a href="#ch61">61. Protected Invariants</a></li>
+          <li><a href="#ch62">62. Amendment Gate</a></li>
+          <li><a href="#ch63">63. Dead‑Man's Switch and Safe‑Park</a></li>
+          <li><a href="#ch64">64. Control Meter (L_t)</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-XII" class="toc-part">Part XII – Multi‑Agent Interaction</a>
+        <ul class="toc-sub">
+          <li><a href="#ch65">65. Session Protocols</a></li>
+          <li><a href="#ch66">66. Cognitive Mesh (MMP)</a></li>
+          <li><a href="#ch67">67. A2A Binding (v1.0)</a></li>
+          <li><a href="#ch68">68. MCP Binding</a></li>
+          <li><a href="#ch69">69. Federation and Stigmergy</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-XIII" class="toc-part">Part XIII – Identity &amp; Provenance</a>
+        <ul class="toc-sub">
+          <li><a href="#ch70">70. Multi‑Anchor Identity</a></li>
+          <li><a href="#ch71">71. Cryptographic Identity</a></li>
+          <li><a href="#ch72">72. Provenance Chain</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-XIV" class="toc-part">Part XIV – Self‑Evolution &amp; Training</a>
+        <ul class="toc-sub">
+          <li><a href="#ch73">73. Self‑Evolution</a></li>
+          <li><a href="#ch74">74. Reinforcement Learning Training</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-XV" class="toc-part">Part XV – Grammar Stratification</a>
+        <ul class="toc-sub">
+          <li><a href="#ch75">75. Grammar Stratification (S0–S3)</a></li>
+          <li><a href="#ch76">76. S0 Grammar for LLM Generation</a></li>
+          <li><a href="#ch77">77. Grammar Export</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-XVI" class="toc-part">Part XVI – Context Budget</a>
+        <ul class="toc-sub">
+          <li><a href="#ch78">78. Compile‑Time Context Budget</a></li>
+          <li><a href="#ch79">79. Agent Contracts</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-XVII" class="toc-part">Part XVII – TEE Governance</a>
+        <ul class="toc-sub">
+          <li><a href="#ch80">80. TEE Governance</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-XVIII" class="toc-part">Part XVIII – ISA &amp; Binary Format</a>
+        <ul class="toc-sub">
+          <li><a href="#ch81">81. The .aslb Binary Format</a></li>
+          <li><a href="#ch82">82. Semantic ISA (Arbiter‑K)</a></li>
+          <li><a href="#ch83">83. Copy‑and‑Patch JIT</a></li>
+        </ul>
+      </li>
+      <li><a href="#part-XIX" class="toc-part">Part XIX – Standard Library</a>
+        <ul class="toc-sub">
+          <li><a href="#ch84">84. Core Modules</a></li>
+          <li><a href="#ch85">85. Agent and Memory</a></li>
+        </ul>
+      </li>
       <li><a href="#part-XX" class="toc-part">Part XX – Developer Tooling</a></li>
       <li><a href="#appendix" class="toc-part">Appendices</a>
         <ul class="toc-sub">
@@ -200,15 +307,100 @@ footer{border-top:1px solid var(--border);padding:40px 48px;display:flex;align-i
 
     <!-- INTRO: WHAT ASL CAN DO -->
     <section id="intro" class="book-section">
-      <h2 class="part-title">What ASL Can Do</h2>
-      <div class="placeholder">[Content – Capabilities overview, unique features summary, and the "Why no other system can do this" list.  Paste here from the Adendum.]</div>
+      <h2 class="part-title">AGENT‑SEED v15.2 — Autonomous Systems Language (ASL) User Manual</h2>
+      <div class="placeholder">Edition Notice
+This manual covers ASL v15.2 (Edition 2029), the definitive version of the Autonomous Systems Language. The reference implementation is the Agent Seed toolchain (seedc, seedvm, seedpkg, seedls, seedfmt, seeddbg). Foreword: The Philosophy of ASL
+The Autonomous Systems Language (ASL) is a programming language purpose‑built for autonomous agentic systems. It is not a general‑purpose language adapted to agents; it is a language whose every construct—from the type system to the runtime—is designed to express, constrain, and execute autonomous behaviour safely, deterministically, and with full audibility.
+
+ASL is grounded in the following fundamental principles: Conformance is verified against the ASL‑CONF‑15 test suite. 1. Composition that Cannot Multiply Errors — Computation<T, ε> and the Uncertain<T> Monad
+The O'Reilly analysis frames multi-agent systems as "probabilistic pipelines, where every unvalidated handoff multiplies uncertainty." Liu's λ_A calculus provides the formal foundation. AGENT‑SEED provides the concrete implementation.
+
+In ASL, no value exists outside a Computation<T, ε>. Every computation carries an uncertainty interval, taint influence, cost bounds, capability requirements, and provenance reference. The discharge expression — the only way to unwrap a computation — must explicitly check all thresholds:
+
+text
+discharge findings with { confidence: 0.85, taint: 0.2, budget: remaining } {
+    synthesize(findings)
+}
+The U1–U6 axioms of Uncertain<T> provide a formal probability monad with interval semantics. U2 (Bind) multiplies intervals through composition, giving the programmer a direct, type-checked view of how uncertainty compounds:
+
+text
+// Uncertainty accumulates at every pipeline stage — compiler tracks it
+let result = infer<StepOne>(...)     // [0.88, 0.94]
+    |> infer<StepTwo>(...)           // [0.85, 0.92]  
+    |> infer<StepThree>(...);        // [0.90, 0.95]
+// result: Uncertain<Final>[0.673, 0.822]  — computed automatically
+(... continue existing intro content ...)</div>
     </section>
 
     <!-- PART I -->
     <section id="part-I" class="book-section">
       <h2 class="part-title">Part I – Getting Started</h2>
-      <section id="ch1"><h3 class="chapter-title">1. Installation</h3><div class="placeholder">[Content – from ASL_MANUAL.md §1.]</div></section>
-      <section id="ch2"><h3 class="chapter-title">2. Hello, Agent</h3><div class="placeholder">[Content – minimal hello.seed, compile & run.]</div></section>
+      <section id="ch1"><h3 class="chapter-title">1. Installation</h3><div class="placeholder">
+The Agent Seed toolchain is under active development and currently built from source. Pre‑built binaries and package registries are planned for the first public release.
+
+1.1 Platform Support & Prerequisites
+ASL runs on Linux (x86_64, arm64), macOS (x86_64, arm64), and Windows (x86_64). The only prerequisite is a recent Rust toolchain (stable, ≥1.85).
+
+Install Rust if you don't have it:
+
+bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+1.2 Building from Source
+Clone the repository and build the workspace:
+
+bash
+git clone https://github.com/agentseedlanguage-cpu/agentseed.git
+cd agentseed
+cargo build --workspace --release
+The binaries are placed in target/release/:
+
+seedc – the compiler
+
+seedvm – the virtual machine
+
+seedpkg – the package manager (scaffold)
+
+seedls – the language server (scaffold)
+
+seedfmt – the code formatter
+
+seeddbg – the debug adapter
+
+Add target/release/ to your PATH for convenience, or run the binaries directly.
+
+1.3 Install via npm / curl (coming soon)
+bash
+npm install -g @agentseed/cli          # not yet published
+curl … | sh                            # not yet available
+These distribution channels will be available with the first public release.
+
+1.4 Verify Installation
+bash
+./target/release/seedc --version   # seedc 0.1.0
+./target/release/seedvm --version  # seedvm 0.1.0</div></section>
+      <section id="ch2"><h3 class="chapter-title">2. Hello, Agent</h3><div class="placeholder">A minimal ASL program is an agent with a main function. Create a file named hello.seed:
+
+seed
+agent hello {
+    fn main() -> i32 {
+        print("Hello, Agent!");
+        0
+    }
+}
+Compile it to bytecode:
+
+bash
+./target/release/seedc build hello.seed -o hello.aslb
+Run the compiled module on the VM:
+
+bash
+./target/release/seedvm run hello.aslb
+Output:
+
+text
+Hello, Agent!
+The seedc build command compiles the source to a binary .aslb module. The seedvm run command executes that module deterministically.</div></section>
       <section id="ch3"><h3 class="chapter-title">3. A Tour of the Language</h3><div class="placeholder">[Content – quick tour of expressions, functions, agents, effects.]</div></section>
     </section>
 
@@ -245,24 +437,150 @@ footer{border-top:1px solid var(--border);padding:40px 48px;display:flex;align-i
       <section id="ch26"><h3 class="chapter-title">26. Duration Literals</h3><div class="placeholder">[Content]</div></section>
     </section>
 
-    <!-- PARTS IV – XX and APPENDICES follow same pattern -->
-    <section id="part-IV" class="book-section"><h2 class="part-title">Part IV – Type System and Formal Foundations</h2><div class="placeholder">[Content – from ASL_MANUAL.md Part IV.]</div></section>
-    <section id="part-V" class="book-section"><h2 class="part-title">Part V – Memory Architecture</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-VI" class="book-section"><h2 class="part-title">Part VI – The Heartbeat and Dream Cycle</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-VII" class="book-section"><h2 class="part-title">Part VII – Capability Security</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-VIII" class="book-section"><h2 class="part-title">Part VIII – Taint and Sanitization</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-IX" class="book-section"><h2 class="part-title">Part IX – Confidence and Inference</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-X" class="book-section"><h2 class="part-title">Part X – Temporal Contracts</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XI" class="book-section"><h2 class="part-title">Part XI – Corrigibility</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XII" class="book-section"><h2 class="part-title">Part XII – Multi‑Agent Interaction</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XIII" class="book-section"><h2 class="part-title">Part XIII – Identity and Provenance</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XIV" class="book-section"><h2 class="part-title">Part XIV – Self‑Evolution and Training</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XV" class="book-section"><h2 class="part-title">Part XV – Grammar Stratification and LLM Generation</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XVI" class="book-section"><h2 class="part-title">Part XVI – Context Budget and Resource Governance</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XVII" class="book-section"><h2 class="part-title">Part XVII – Hardware‑Attested Execution</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XVIII" class="book-section"><h2 class="part-title">Part XVIII – The Virtual ISA and Binary Format</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XIX" class="book-section"><h2 class="part-title">Part XIX – Standard Library</h2><div class="placeholder">[Content]</div></section>
-    <section id="part-XX" class="book-section"><h2 class="part-title">Part XX – Developer Tooling</h2><div class="placeholder">[Content]</div></section>
+    <!-- PART IV – Type System -->
+    <section id="part-IV" class="book-section">
+      <h2 class="part-title">Part IV – Type System and Formal Foundations</h2>
+      <section id="ch27"><h3 class="chapter-title">27. The Core Type System</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch28"><h3 class="chapter-title">28. Ownership and Borrowing</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch29"><h3 class="chapter-title">29. Effect Row Polymorphism</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch30"><h3 class="chapter-title">30. Capability Type Rules</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch31"><h3 class="chapter-title">31. Trust Lattice</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch32"><h3 class="chapter-title">32. Session Protocol Types</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch33"><h3 class="chapter-title">33. The Uncertain⟨T⟩ Axioms</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch34"><h3 class="chapter-title">34. The Computation⟨T, ε⟩ Monad</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART V – Memory Architecture -->
+    <section id="part-V" class="book-section">
+      <h2 class="part-title">Part V – Memory Architecture</h2>
+      <section id="ch35"><h3 class="chapter-title">35. Memory Hierarchy Overview</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch36"><h3 class="chapter-title">36. Layer Definitions and Schemas</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch37"><h3 class="chapter-title">37. Memory Operations API</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch38"><h3 class="chapter-title">38. Memory Governance</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch39"><h3 class="chapter-title">39. Memory Consistency</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch40"><h3 class="chapter-title">40. Dual‑Process Memory</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch41"><h3 class="chapter-title">41. Episodic Reconstruction</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch42"><h3 class="chapter-title">42. The Memory Cycle</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch43"><h3 class="chapter-title">43. Adaptive Memory (FluxMem)</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch44"><h3 class="chapter-title">44. Evolutionary Memory (PRISM)</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART VI – Heartbeat & Dream -->
+    <section id="part-VI" class="book-section">
+      <h2 class="part-title">Part VI – The Heartbeat and Dream Cycle</h2>
+      <section id="ch45"><h3 class="chapter-title">45. Heartbeat</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch46"><h3 class="chapter-title">46. Dream Cycle</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART VII – Capability Security -->
+    <section id="part-VII" class="book-section">
+      <h2 class="part-title">Part VII – Capability Security</h2>
+      <section id="ch47"><h3 class="chapter-title">47. Capability Token Semantics</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch48"><h3 class="chapter-title">48. Capability Operations</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch49"><h3 class="chapter-title">49. Conjunction Safety</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART VIII – Taint & Sanitization -->
+    <section id="part-VIII" class="book-section">
+      <h2 class="part-title">Part VIII – Taint and Sanitization</h2>
+      <section id="ch50"><h3 class="chapter-title">50. Taint Types</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch51"><h3 class="chapter-title">51. Sanitization</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART IX – Confidence & Inference -->
+    <section id="part-IX" class="book-section">
+      <h2 class="part-title">Part IX – Confidence and Inference</h2>
+      <section id="ch52"><h3 class="chapter-title">52. Confidence Intervals and Gates</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch53"><h3 class="chapter-title">53. Inference with infer⟨T⟩</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch54"><h3 class="chapter-title">54. Model Routing and Think Profiles</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART X – Temporal Contracts -->
+    <section id="part-X" class="book-section">
+      <h2 class="part-title">Part X – Temporal Contracts</h2>
+      <section id="ch55"><h3 class="chapter-title">55. LTL Syntax and Semantics</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch56"><h3 class="chapter-title">56. Temporal Contract Declaration</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch57"><h3 class="chapter-title">57. Runtime SMT Enforcement</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch58"><h3 class="chapter-title">58. AgentVerify Templates</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch59"><h3 class="chapter-title">59. StepShield Temporal Metrics</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XI – Corrigibility -->
+    <section id="part-XI" class="book-section">
+      <h2 class="part-title">Part XI – Corrigibility</h2>
+      <section id="ch60"><h3 class="chapter-title">60. Corrigibility Heads (U1–U5)</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch61"><h3 class="chapter-title">61. Protected Invariants</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch62"><h3 class="chapter-title">62. Amendment Gate</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch63"><h3 class="chapter-title">63. Dead‑Man's Switch and Safe‑Park</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch64"><h3 class="chapter-title">64. Control Meter (L_t)</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XII – Multi‑Agent Interaction -->
+    <section id="part-XII" class="book-section">
+      <h2 class="part-title">Part XII – Multi‑Agent Interaction</h2>
+      <section id="ch65"><h3 class="chapter-title">65. Session Protocols</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch66"><h3 class="chapter-title">66. Cognitive Mesh (MMP)</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch67"><h3 class="chapter-title">67. A2A Binding (v1.0)</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch68"><h3 class="chapter-title">68. MCP Binding</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch69"><h3 class="chapter-title">69. Federation and Stigmergy</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XIII – Identity & Provenance -->
+    <section id="part-XIII" class="book-section">
+      <h2 class="part-title">Part XIII – Identity and Provenance</h2>
+      <section id="ch70"><h3 class="chapter-title">70. Multi‑Anchor Identity</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch71"><h3 class="chapter-title">71. Cryptographic Identity</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch72"><h3 class="chapter-title">72. Provenance Chain</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XIV – Self‑Evolution & Training -->
+    <section id="part-XIV" class="book-section">
+      <h2 class="part-title">Part XIV – Self‑Evolution and Training</h2>
+      <section id="ch73"><h3 class="chapter-title">73. Self‑Evolution</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch74"><h3 class="chapter-title">74. Reinforcement Learning Training</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XV – Grammar Stratification -->
+    <section id="part-XV" class="book-section">
+      <h2 class="part-title">Part XV – Grammar Stratification and LLM Generation</h2>
+      <section id="ch75"><h3 class="chapter-title">75. Grammar Stratification (S0–S3)</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch76"><h3 class="chapter-title">76. S0 Grammar for LLM Generation</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch77"><h3 class="chapter-title">77. Grammar Export</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XVI – Context Budget -->
+    <section id="part-XVI" class="book-section">
+      <h2 class="part-title">Part XVI – Context Budget and Resource Governance</h2>
+      <section id="ch78"><h3 class="chapter-title">78. Compile‑Time Context Budget</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch79"><h3 class="chapter-title">79. Agent Contracts</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XVII – TEE Governance -->
+    <section id="part-XVII" class="book-section">
+      <h2 class="part-title">Part XVII – Hardware‑Attested Execution</h2>
+      <section id="ch80"><h3 class="chapter-title">80. TEE Governance</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XVIII – ISA & Binary Format -->
+    <section id="part-XVIII" class="book-section">
+      <h2 class="part-title">Part XVIII – The Virtual ISA and Binary Format</h2>
+      <section id="ch81"><h3 class="chapter-title">81. The .aslb Binary Format</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch82"><h3 class="chapter-title">82. Semantic ISA (Arbiter‑K)</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch83"><h3 class="chapter-title">83. Copy‑and‑Patch JIT</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XIX – Standard Library -->
+    <section id="part-XIX" class="book-section">
+      <h2 class="part-title">Part XIX – Standard Library</h2>
+      <section id="ch84"><h3 class="chapter-title">84. Core Modules</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch85"><h3 class="chapter-title">85. Agent and Memory</h3><div class="placeholder">[Content]</div></section>
+    </section>
+
+    <!-- PART XX – Developer Tooling -->
+    <section id="part-XX" class="book-section">
+      <h2 class="part-title">Part XX – Developer Tooling</h2>
+      <div class="placeholder">[Content]</div>
+    </section>
 
     <!-- APPENDICES -->
     <section id="appendix" class="book-section">

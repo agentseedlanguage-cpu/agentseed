@@ -12,6 +12,7 @@ pub struct TaintChecker {
 }
 
 impl TaintChecker {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             pc_level: TaintLevel::Clean,

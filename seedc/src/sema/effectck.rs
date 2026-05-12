@@ -12,6 +12,7 @@ pub struct EffectChecker {
 }
 
 impl EffectChecker {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             inside_discharge: false,
