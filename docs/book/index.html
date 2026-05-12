@@ -100,20 +100,20 @@ footer{border-top:1px solid var(--border);padding:40px 48px;display:flex;align-i
 <div class="orb orb2"></div>
 
 <nav>
-  <a class="nav-logo" href="/agentseed/">
+  <a class="nav-logo" href="https://agentseedlanguage-cpu.github.io/agentseed/landing/">
     <span class="logo-pip">A</span>
     ASL
   </a>
   <ul class="nav-links">
-    <li><a href="/agentseed/#how">How it works</a></li>
-    <li><a href="/agentseed/#strata">Strata</a></li>
-    <li><a href="/agentseed/#compare">Compare</a></li>
+    <li><a href="https://agentseedlanguage-cpu.github.io/agentseed/landing/#how">How it works</a></li>
+    <li><a href="https://agentseedlanguage-cpu.github.io/agentseed/landing/#strata">Strata</a></li>
+    <li><a href="https://agentseedlanguage-cpu.github.io/agentseed/landing/#compare">Compare</a></li>
     <li><a href="/agentseed/book/">Manual</a></li>
     <li><a href="https://github.com/agentseedlanguage-cpu/agentseed">GitHub</a></li>
   </ul>
   <div class="nav-right">
     <a class="btn btn-g" href="https://discord.gg/agentseed">Discord</a>
-    <a class="btn btn-p" href="/agentseed/#playground">Playground</a>
+    <a class="btn btn-p" href="https://agentseedlanguage-cpu.github.io/agentseed/landing/#playground">Playground</a>
   </div>
 </nav>
 
@@ -309,7 +309,7 @@ footer{border-top:1px solid var(--border);padding:40px 48px;display:flex;align-i
     <section id="intro" class="book-section">
       <h2 class="part-title">AGENT‑SEED v15.2 — Autonomous Systems Language (ASL) User Manual</h2>
       <div class="placeholder">Edition Notice
-This manual covers ASL v15.2 (Edition 2029), the definitive version of the Autonomous Systems Language. The reference implementation is the Agent Seed toolchain (seedc, seedvm, seedpkg, seedls, seedfmt, seeddbg). Foreword: The Philosophy of ASL
+This manual covers ASL v15.2 (Edition 2026), the definitive version of the Autonomous Systems Language. The reference implementation is the Agent Seed toolchain (seedc, seedvm, seedpkg, seedls, seedfmt, seeddbg). Foreword: The Philosophy of ASL
 The Autonomous Systems Language (ASL) is a programming language purpose‑built for autonomous agentic systems. It is not a general‑purpose language adapted to agents; it is a language whose every construct—from the type system to the runtime—is designed to express, constrain, and execute autonomous behaviour safely, deterministically, and with full audibility.
 
 ASL is grounded in the following fundamental principles: Conformance is verified against the ASL‑CONF‑15 test suite. 1. Composition that Cannot Multiply Errors — Computation<T, ε> and the Uncertain<T> Monad
@@ -572,8 +572,159 @@ The seedc build command compiles the source to a binary .aslb module. The seedvm
     <!-- PART XIX – Standard Library -->
     <section id="part-XIX" class="book-section">
       <h2 class="part-title">Part XIX – Standard Library</h2>
-      <section id="ch84"><h3 class="chapter-title">84. Core Modules</h3><div class="placeholder">[Content]</div></section>
-      <section id="ch85"><h3 class="chapter-title">85. Agent and Memory</h3><div class="placeholder">[Content]</div></section>
+      <section id="ch84"><h3 class="chapter-title">84. Core Modules</h3><div class="placeholder">84. Core Modules
+The core modules provide the foundational vocabulary of ASL: basic types, collections, I/O, concurrency, and language essentials.
+
+84.1 Prelude and Fundamentals
+Module	Description
+seed::prelude	Re‑exports the most commonly used types and traits: Option, Result, Vec, String, HashMap, Uncertain, Computation, Agent, MemoryLayer, etc.
+seed::types	Core type definitions (bool, i8–i128, u8–u128, f32, f64, char, str, String, Bytes, Timestamp, Duration, Uuid).
+seed::option	The Option<T> type and associated methods.
+seed::result	The Result<T, E> type, error propagation (?), and combinators.
+seed::fmt	Formatting traits (Display, Debug) and utilities for string conversion.
+seed::mem	Memory‑related utilities (size‑of, alignment, take, replace).
+seed::ptr	Raw pointer operations (for unsafe blocks).
+84.2 Collections and Iterators
+Module	Description
+seed::collections	Vec<T>, HashMap<K,V>, HashSet<T>, VecDeque<T>, BinaryHeap<T>, BTreeMap<K,V>, BTreeSet<T>.
+seed::string	String type, UTF‑8 validation, and string manipulation utilities.
+seed::iter	Iterator trait and adaptors (map, filter, fold, collect, etc.).
+84.3 I/O, Filesystem, and Networking
+Module	Description
+seed::io	Standard I/O traits (Read, Write, Seek), buffered I/O, and stdio handles.
+seed::fs	Filesystem operations (read, write, create_dir, remove_file, metadata, canonicalize).
+seed::path	Path and PathBuf types for cross‑platform path manipulation.
+seed::net	TCP/UDP sockets, address resolution (TcpListener, TcpStream, UdpSocket).
+seed::process	Subprocess management (Command, exit status, stdin/stdout/stderr pipes).
+84.4 Concurrency and Asynchrony
+Module	Description
+seed::thread	OS thread spawning and scoped threads.
+seed::sync	Mutex<T>, RwLock<T>, Arc<T>, Weak<T>, Barrier, Condvar, Once.
+seed::channel	Multi‑producer, single‑consumer channels (Sender, Receiver).
+seed::actor	Lightweight actor model; each actor receives messages and maintains private state.
+seed::async	Async runtime basics: Future trait, async/await, task spawning.
+seed::coproc	Coprocess management (bidirectional communication with child agents).
+seed::signal	Signal handling (SIGINT, SIGTERM, etc.) and trap management.
+</div></section>
+      <section id="ch85"><h3 class="chapter-title">85. Agent and Memory, and Specialised Modules</h3><div class="placeholder">This chapter covers all remaining modules, organised by domain: agent operations, memory, security, inference, protocols, identity, evolution, training, tooling, and other utilities.
+
+85.1 Agent and Decision
+Module	Description
+seed::agent	Base Agent trait, lifecycle hooks, agent metadata, and spawning.
+seed::decision	Decision record types, justification rationale, alternatives, and Merkle‑proofed logs.
+seed::pipeline	Agent composition via the pipeline operator (|>), async pipes (|>>), and parallel fan‑out (|&).
+seed::seed	Seed literal processing and configuration elaboration.
+seed::section	Typed memory sections (schema definitions, field validation).
+seed::import	Module import resolution and dynamic loading.
+seed::compat	Backward‑compatibility utilities for versioned schemas.
+seed::migration	Schema migration engine (additive and destructive migrations).
+85.2 Memory Subsystem
+Module	Description
+seed::memory	The mem handle: store, retrieve, traverse, consolidate, decay, reinforce, and provenance operations for all eight layers.
+seed::governance	Memory governance: tri‑path router configuration, memory effects (MemoryOps), and governance handlers.
+seed::coherency	MESI cache coherency protocol, CRDT manager (LWW‑Register, OR‑Set, PN‑Counter, etc.), and anti‑entropy gossip.
+seed::merkle	Merkle tree integrity: root computation, inclusion proof generation, and verification.
+seed::dual	Dual‑process memory controller (System‑1 fast retrieval, System‑2 exhaustive deliberation, gating function).
+seed::episodic	Episodic memory reconstruction (master‑assistant two‑agent retrieval).
+seed::dream	Dream cycle scheduler: six‑phase consolidation, pre/post‑conditions, journal writing and signing.
+seed::adaptive	Adaptive memory structure selector (FluxMem probabilistic sketch, full graph, hybrid strategies).
+seed::evolutionary_memory	PRISM evolutionary memory substrate: encoder, indexer, retriever, consolidator, pruner, evolver, verifier, governor.
+seed::memory_cycle	Memory cycle – heartbeat‑integrated phases: observe, act, log, update.
+85.3 Security, Cryptography, and Capability
+Module	Description
+seed::crypto	Ed25519 signatures, SHA3‑256 hashing, key generation.
+seed::capability	Capability token management: grant, attenuate, delegate, revoke, hypergraph closure, and perform with requires.
+seed::sandbox	Restricted execution mode: capability‑based isolation, resource limits.
+seed::audit	Audit trail export, Merkle verification, SCITT receipt generation.
+seed::taint	Taint types (taint::external, taint::inferred, etc.), propagation, and the sanitize expression.
+seed::sanitizer	Sanitization policy registry: content policy, PII redaction, human review, regex validation.
+seed::quarantine	Adversarial content isolation: move suspected prompt injection or malicious data to a quarantine zone.
+seed::consent	Consent level enforcement (public, private, sensitive) and access control.
+85.4 Inference, Uncertainty, and Confidence
+Module	Description
+seed::inference	Multi‑provider LLM gateway: infer<T>, schema validation, repair engine, and token budget tracking.
+seed::uncertain	Uncertain<T> monad: pure, bind, map, observe, gate (U1–U6 API), interval arithmetic, and ThreeValued<T>.
+seed::confidence	Confidence gate (?!), threshold registry, and discharge expression.
+seed::cognitive	Built‑in cognitive types: Classification, Extraction<T>, Decision, Plan, Critique, Hypothesis, Summary.
+seed::think	Test‑time compute profiles (quick, thorough, exhaustive) and exploration chain configuration.
+seed::route	Model routing policy: tiers (local_slm, cloud_mid, frontier), calibration profiles, and cost management.
+seed::prompts	Prompt templates, joint‑tool‑prompt optimisation, and template rendering.
+85.5 Protocols, Federation, and Mesh
+Module	Description
+seed::federation	Federated knowledge sharing: typed facts, vector clocks, CRDT‑backed replication, gossip, anti‑entropy.
+seed::mesh	Cognitive Mesh (MMP): CAT7 schema, SVAF evaluation, lineage tracking, remix storage.
+seed::session	Session protocol types: global type, projections, duality, deadlock freedom, mesh_call.
+seed::mcp_server	MCP server: tools, resources, prompts, JSON‑RPC lifecycle, MCPS cryptographic layer, MCPSHIELD defence‑in‑depth.
+seed::mcp_client	MCP client: connect, call tools, resource read, prompt get.
+seed::a2a_card	A2A Agent Card generation, JWS signature, and verification.
+seed::a2a_task	A2A task state machine (nine states), streaming, push notifications, all eleven RPC methods.
+seed::transport	Transport layer: stdio, HTTP/SSE, gRPC, WebSocket for inter‑agent communication.
+85.6 Identity, Provenance, and Audit
+Module	Description
+seed::identity	Multi‑anchor identity: six anchors, resilience levels, drift detection, and recovery.
+seed::crypto_id	Cryptographic identity: DID derivation, zkVM attestation, PASETO v4, delegation tokens, AgentDID challenge‑response.
+seed::provenance	Provenance chain: ProvenanceRecord, ProvenanceTag, SPICE Truth Stack, TraceCaps monotone risk accumulator, SCITT receipts.
+seed::trace	OpenTelemetry span emission (inference, tool, memory, effect, agent, decision, federation, dream spans), checkpoint, and replay.
+85.7 Evolution, Training, and Optimisation
+Module	Description
+seed::evolution	Self‑evolution engine: SEVerA/FGGM pipeline, amendment lifecycle, adversarial simulation, rollback.
+seed::evolution_track	Amendment log: propose, simulate, approve, apply, rollback entries.
+seed::training	RL training regimen: PPO, GRPO, hybrid GRPO, reward functions, process critic, curriculum, convergence guard.
+seed::curriculum	Curriculum scheduler: difficulty coupling, token‑budget scaling, asymmetric competence pairing.
+seed::fggm	Formally Guarded Generative Models: output contracts, rejection sampler, verified fallback.
+85.8 Tooling, Grammar, and Conformance
+Module	Description
+seed::grammar_strata	Stratum validation and escalation gate.
+seed::isa	ISA extension query, binary introspection, and extension manifest.
+seed::conformance	Conformance test runner and level verification.
+seed::formalism	Progressive formalization helpers: @formalism(L1) through @formalism(L5).
+85.9 Other Utility Modules
+Module	Description
+seed::prob	Probabilistic programming constructs (soft choice, gradient descent).
+seed::react	Reactive signals and react rules.
+seed::differentiable	Differentiable execution primitives: soft_choice, gradient_descent.
+seed::reactive_prob	Reactive probabilistic reasoning: signal frequencies, memoisation.
+seed::tripartite_context	P0/P1/P2 context window assembly and rendering order.
+seed::persistent_memory	remember and recall – O(1) persistent key‑value store.
+seed::durable_execution	suspend and resume – serialise and reconstruct agent state.
+seed::job_control	Shell‑like job control: fg, bg, jobs, disown, wait.
+seed::expansion	Parameter expansion, history expansion, and evaluation utilities.
+seed::eval_source	eval and source – evaluate strings or files as ASL code.
+seed::printf	Formatted output (printf‑style).
+seed::startup	Startup file processing (rcfile, profile).
+seed::options	Shell option toggles (set, shopt equivalents).
+seed::restricted	Restricted mode: allowed agents, allowed builtins, readable files.
+seed::completion	Programmable completion engine.
+seed::history	Command history and histverify support.
+seed::signal_trap	trap handling for signals and events.
+seed::fifo	Named pipe (mkfifo) creation and management.
+seed::coprocesses	Coprocess management (bidirectional I/O with background agents).
+seed::decorators	Decorator attributes: @audit, @cache(ttl), @deprecated, @trace, @memoize, @sealed, @readonly, @lazy, @validate(schema), @drift‑monitor.
+seed::compatibility	§COMPATIBILITY‑MATRIX runtime checks for structural seed compatibility.
+seed::exhaustiveness	Exhaustiveness checking utilities for discriminated unions.
+seed::identifier_schema	Template literal pattern validator for section IDs.
+seed::transform	Transform rule engine.
+seed::migrate	Migration engine for seed versioning.
+seed::interface	.seed.d interface file generator/parser.
+seed::resolution	Multi‑strategy import resolver (registry, federated, local, bundler).
+seed::ownership	Ownership registry and borrow checker for section data.
+seed::lifetimes	Lifetime annotation support ('static, 'session, 'task, 'transient).
+seed::smart_pointers	Box<T>, Rc<T>, Arc<T>, Weak<T>, RefCell<T>.
+seed::traits::auto	Send and Sync auto‑derivation.
+seed::macros	macro_rules!, proc_macro, derive, attribute macros.
+seed::unsafe	Unsafe block auditing and justification.
+seed::active_threads	Thread tracking and thread‑local storage.
+seed::tool_schema	JSON Schema validation for tool definitions.
+seed::composite_seeds	Sub‑seed management and composite seed assembly.
+seed::orchestration	Sub‑agent spawn policies and orchestration rules.
+seed::fork_merge	Fork, merge, and session‑seed primitives for agent replication.
+seed::session_types	Protocol definition and verification (duality, projection soundness).
+seed::runtime_constraints	AgentSpec runtime constraint enforcement.
+seed::schema_import	use schema compile‑time directive for external API specification fetching and code generation.
+seed::identity_handle	grant identity – opaque, unforgeable Identity handles that cannot be serialised or output.
+seed::tee	TEE attestation: Intel TDX, AMD SEV, Arm CCA measurement verification and trust scoring.
+seed::trajectory_audit	Retrospective formal verification of agent action logs against Dafny/Z3 specifications.
+seed::agent_contract	Resource‑bounded agent contracts: lifecycle states, conservation laws, and enforcement.</div></section>
     </section>
 
     <!-- PART XX – Developer Tooling -->
@@ -602,9 +753,9 @@ The seedc build command compiles the source to a binary .aslb module. The seedvm
 
 <footer>
   <div class="footer-left">
-    <a class="footer-logo" href="/agentseed/">ASL</a>
+    <a class="footer-logo" href="https://agentseedlanguage-cpu.github.io/agentseed/landing/">ASL</a>
     <span class="footer-meta">Autonomous Systems Language · Agent Seed compiler &amp; VM · v0.1.0</span>
-    <span class="footer-meta">Designed and built by Damain Peter Ramsajan</span>
+    <span class="footer-meta">Designed and built by Damian Ramsajan</span>
   </div>
   <ul class="footer-links">
     <li><a href="/agentseed/book/">Manual</a></li>

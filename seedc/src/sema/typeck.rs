@@ -51,12 +51,15 @@ impl Inferencer {
 
     // ── Substitution & unification ──
 
-    fn apply_subst(&self, ty: &Ty) -> Ty {
+        fn apply_subst(&self, ty: &Ty) -> Ty {
         match ty {
-            Ty::Var(v) if !self.substitution.contains_key(v) => {
-                fv.insert(*v);
+            Ty::Var(v) => {
+                if let Some(t) = self.substitution.get(v) {
+                    self.apply_subst(t)
+                } else {
+                    ty.clone()
+                }
             }
-            Ty::Var(_) => {}
             Ty::Fn(args, ret, eff) => Ty::Fn(
                 args.iter().map(|a| self.apply_subst(a)).collect(),
                 Box::new(self.apply_subst(ret)),

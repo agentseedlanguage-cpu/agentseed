@@ -60,7 +60,7 @@ impl<'a> Parser<'a> {
 
     fn last_span(&self) -> SourceSpan {
         if self.pos == 0 {
-            SourceSpan::new(start.into(), len)
+            SourceSpan::new(0.into(), 0)
         } else {
             self.tokens[self.pos - 1].span
         }
@@ -122,7 +122,6 @@ impl<'a> Parser<'a> {
     fn parse_top_level_item(&mut self) -> Result<TopLevelItem, ParseError> {
         let t = self.peek().ok_or(eof_err())?.clone();
         match t.kind {
-            // ── Known specific declarations ──
             TokenKind::KwAgent => Ok(TopLevelItem::Agent(self.parse_agent()?)),
             TokenKind::KwFn => Ok(TopLevelItem::Fn(self.parse_fn(Visibility::Priv)?)),
             TokenKind::KwPub => {
@@ -145,7 +144,6 @@ impl<'a> Parser<'a> {
             TokenKind::KwEffect => Ok(TopLevelItem::Effect(self.parse_effect()?)),
             TokenKind::KwHandler => Ok(TopLevelItem::Handler(self.parse_handler()?)),
 
-            // ── Catch‑all: any keyword followed by `{` becomes a Clause ──
             kind if kind as u8 >= TokenKind::KwAgent as u8
                 && kind as u8 <= TokenKind::KwZkvm as u8
                 && self
@@ -157,7 +155,6 @@ impl<'a> Parser<'a> {
                 Ok(TopLevelItem::Clause(id, body))
             }
 
-            // ── Everything else tries to parse as an expression ──
             _ => Ok(TopLevelItem::Expression(self.parse_expr()?)),
         }
     }
@@ -187,7 +184,6 @@ impl<'a> Parser<'a> {
         match t.kind {
             TokenKind::KwFn => Ok(AgentMember::Method(self.parse_fn(Visibility::Priv)?)),
 
-            // Catch‑all: any keyword followed by `{` becomes a named clause block
             kind if kind as u8 >= TokenKind::KwAgent as u8
                 && kind as u8 <= TokenKind::KwZkvm as u8
                 && self
@@ -200,7 +196,6 @@ impl<'a> Parser<'a> {
             }
 
             _ => {
-                // Fallback: try to parse as a field (identifier : type ;)
                 let name = self.parse_ident()?;
                 self.expect(TokenKind::Colon)?;
                 let ty = self.parse_type()?;
