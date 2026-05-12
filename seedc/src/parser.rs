@@ -75,6 +75,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[allow(clippy::unnecessary_cast)]
     fn span_from(&self, start: usize) -> SourceSpan {
         let end = if self.pos > 0 {
             self.tokens[self.pos - 1].span
