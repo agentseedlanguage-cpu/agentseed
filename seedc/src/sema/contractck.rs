@@ -13,12 +13,6 @@ impl ContractChecker {
         Self { errors: Vec::new() }
     }
 
-    impl Default for ContractChecker {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
     pub fn check_expr(&mut self, expr: &Expr) {
         match &expr.kind {
             ExprKind::Discharge(scrutinee, thresholds) => {
@@ -95,6 +89,12 @@ impl ContractChecker {
             }
             _ => {}
         }
+    }
+}
+
+impl Default for ContractChecker {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

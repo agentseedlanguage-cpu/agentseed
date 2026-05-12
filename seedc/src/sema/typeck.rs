@@ -43,12 +43,6 @@ impl Inferencer {
         }
     }
 
-    impl Default for Inferencer {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
     fn fresh_var(&mut self) -> Ty {
         let v = self.fresh_counter;
         self.fresh_counter += 1;
@@ -171,6 +165,7 @@ impl Inferencer {
                     fv.insert(*v);
                 }
             }
+            Ty::Fn(args, ret, _) => {
                 for a in args {
                     self.collect_free_vars(a, fv);
                 }
@@ -435,6 +430,12 @@ impl Inferencer {
             }
             _ => Ok(EffectSet::pure()),
         }
+    }
+}
+
+impl Default for Inferencer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

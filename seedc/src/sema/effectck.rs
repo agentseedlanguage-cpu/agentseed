@@ -21,12 +21,6 @@ impl EffectChecker {
         }
     }
 
-impl Default for EffectChecker {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
     pub fn check_expr(&mut self, expr: &Expr) -> HashSet<Effect> {
         match &expr.kind {
             ExprKind::Perform(op, args) => {
@@ -138,6 +132,12 @@ impl Default for EffectChecker {
             }
             _ => HashSet::new(),
         }
+    }
+}
+
+impl Default for EffectChecker {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -21,12 +21,6 @@ impl TaintChecker {
         }
     }
 
-impl Default for TaintChecker {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
     pub fn check_expr(&mut self, expr: &Expr) -> TaintLevel {
         match &expr.kind {
             ExprKind::Lit(_) => self.pc_level,
@@ -152,6 +146,12 @@ impl Default for TaintChecker {
             }
             _ => self.pc_level,
         }
+    }
+}
+
+impl Default for TaintChecker {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

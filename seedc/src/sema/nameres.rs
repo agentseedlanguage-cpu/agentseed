@@ -61,12 +61,6 @@ impl Resolver {
         resolver
     }
 
-    impl Default for Resolver {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
     fn alloc_id(&mut self) -> DefId {
         let id = DefId(self.next_id);
         self.next_id += 1;
@@ -328,6 +322,12 @@ impl Resolver {
 
     fn resolve_use(&mut self, _use: &UseDecl) -> Result<(), TypeError> {
         Ok(())
+    }
+}
+
+impl Default for Resolver {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
