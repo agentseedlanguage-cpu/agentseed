@@ -359,9 +359,15 @@ fn cmd_prove(args: ProveArgs) -> miette::Result<()> {
 
 /// Read a source file into a String, or from stdin if path is "-".
 fn read_source(path: &Path) -> miette::Result<String> {
+    read_source_from(path, &mut io::stdin())
+}
+
+/// Reader-injected implementation of [`read_source`] so stdin handling can be
+/// unit-tested without blocking on the process's real stdin.
+fn read_source_from<R: Read>(path: &Path, stdin: &mut R) -> miette::Result<String> {
     if path == Path::new("-") {
         let mut buf = String::new();
-        io::stdin()
+        stdin
             .read_to_string(&mut buf)
             .into_diagnostic()
             .wrap_err("failed to read source from stdin")?;
@@ -471,7 +477,14 @@ mod tests {
 
     #[test]
     fn test_read_source_stdin() {
-        let result = read_source(Path::new("-"));
-        let _ = result;
+        let mut fake_stdin = io::Cursor::new("fn main() { }".as_bytes());
+        let src = read_source_from(Path::new("-"), &mut fake_stdin).expect("read from cursor");
+        assert_eq!(src, "fn main() { }");
+    }
+
+    #[test]
+    fn test_read_source_missing_file_errors() {
+        let mut unused = io::Cursor::new(&b""[..]);
+        assert!(read_source_from(Path::new("/definitely/not/here.seed"), &mut unused).is_err());
     }
 }
