@@ -31,6 +31,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Dead-module guard (ADR-017)
+        run: python3 scripts/check_dead_modules.py
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
