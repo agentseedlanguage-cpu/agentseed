@@ -33,13 +33,19 @@ impl Interval {
     }
 
     /// The width of the interval.
-    pub fn width(&self) -> f64 { self.hi - self.lo }
+    pub fn width(&self) -> f64 {
+        self.hi - self.lo
+    }
 
     /// The midpoint of the interval.
-    pub fn midpoint(&self) -> f64 { (self.lo + self.hi) / 2.0 }
+    pub fn midpoint(&self) -> f64 {
+        (self.lo + self.hi) / 2.0
+    }
 
     /// Check whether this interval contains a value.
-    pub fn contains(&self, v: f64) -> bool { v >= self.lo && v <= self.hi }
+    pub fn contains(&self, v: f64) -> bool {
+        v >= self.lo && v <= self.hi
+    }
 
     /// Check whether this interval is contained within another.
     pub fn contained_in(&self, other: &Interval) -> bool {
@@ -50,14 +56,20 @@ impl Interval {
 impl Add for Interval {
     type Output = Self;
     fn add(self, other: Self) -> Self {
-        Self { lo: self.lo + other.lo, hi: self.hi + other.hi }
+        Self {
+            lo: self.lo + other.lo,
+            hi: self.hi + other.hi,
+        }
     }
 }
 
 impl Sub for Interval {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
-        Self { lo: self.lo - other.hi, hi: self.hi - other.lo }
+        Self {
+            lo: self.lo - other.hi,
+            hi: self.hi - other.lo,
+        }
     }
 }
 
@@ -144,7 +156,8 @@ impl UncertaintyEngine {
         if result.width() > before.width() + 1e-10 {
             return Err(format!(
                 "U3 violation: observation widened uncertainty from {:.6} to {:.6}",
-                before.width(), result.width()
+                before.width(),
+                result.width()
             ));
         }
 
@@ -163,7 +176,8 @@ impl UncertaintyEngine {
         if proposed.width() > self.min_precision {
             return Err(format!(
                 "U4 violation: interval width {:.6} exceeds max allowed {:.6}",
-                proposed.width(), self.min_precision
+                proposed.width(),
+                self.min_precision
             ));
         }
         Ok(())

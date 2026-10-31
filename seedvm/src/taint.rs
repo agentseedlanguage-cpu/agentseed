@@ -5,8 +5,8 @@
 //! Also inspired by Tant (Bertolo, 2026) for type‑level taint qualifiers
 //! and zeptoclaw for data‑flow‑aware agent safety.
 
-use std::collections::{HashMap, HashSet};
 use crate::value::Value;
+use std::collections::{HashMap, HashSet};
 
 // ── Taint categories ──
 
@@ -57,14 +57,24 @@ pub struct TaintMeta {
 impl TaintMeta {
     /// Create clean metadata.
     pub fn clean() -> Self {
-        Self { level: TaintLevel::Clean, categories: HashSet::new(), sources: vec![], depth: 0 }
+        Self {
+            level: TaintLevel::Clean,
+            categories: HashSet::new(),
+            sources: vec![],
+            depth: 0,
+        }
     }
 
     /// Create tainted metadata from a single source.
     pub fn tainted(category: TaintCategory, source: impl Into<String>) -> Self {
         let mut categories = HashSet::new();
         categories.insert(category);
-        Self { level: TaintLevel::Tainted, categories, sources: vec![source.into()], depth: 1 }
+        Self {
+            level: TaintLevel::Tainted,
+            categories,
+            sources: vec![source.into()],
+            depth: 1,
+        }
     }
 
     /// Join (lub) of two taint metadata values.
@@ -75,7 +85,12 @@ impl TaintMeta {
         let mut sources = self.sources.clone();
         sources.extend(other.sources.clone());
         let depth = self.depth.max(other.depth) + 1;
-        TaintMeta { level, categories, sources, depth }
+        TaintMeta {
+            level,
+            categories,
+            sources,
+            depth,
+        }
     }
 }
 
@@ -103,11 +118,41 @@ impl DangerRule {
     /// The well‑known dangerous combinations.
     pub fn builtin_rules() -> Vec<DangerRule> {
         vec![
-            DangerRule { source_category: TaintCategory::UserInput, sink_category: TaintCategory::Network, severity: DangerSeverity::High, name: "input→network".into(), description: "User input being sent over network".into() },
-            DangerRule { source_category: TaintCategory::Inference, sink_category: TaintCategory::Network, severity: DangerSeverity::High, name: "inference→network".into(), description: "LLM output exfiltration".into() },
-            DangerRule { source_category: TaintCategory::Network, sink_category::TaintCategory::FileSystem, severity: DangerSeverity::Medium, name: "network→filesystem".into(), description: "Network data written to disk".into() },
-            DangerRule { source_category: TaintCategory::EnvVar, sink_category::TaintCategory::Network, severity: DangerSeverity::Critical, name: "envvar→network".into(), description: "Environment variable (credentials) sent over network".into() },
-            DangerRule { source_category: TaintCategory::AgentMessage, sink_category::TaintCategory::Database, severity: DangerSeverity::Medium, name: "agent-msg→db".into(), description: "Agent message written to database".into() },
+            DangerRule {
+                source_category: TaintCategory::UserInput,
+                sink_category: TaintCategory::Network,
+                severity: DangerSeverity::High,
+                name: "input→network".into(),
+                description: "User input being sent over network".into(),
+            },
+            DangerRule {
+                source_category: TaintCategory::Inference,
+                sink_category: TaintCategory::Network,
+                severity: DangerSeverity::High,
+                name: "inference→network".into(),
+                description: "LLM output exfiltration".into(),
+            },
+            DangerRule {
+                source_category: TaintCategory::Network,
+                sink_category: TaintCategory::FileSystem,
+                severity: DangerSeverity::Medium,
+                name: "network→filesystem".into(),
+                description: "Network data written to disk".into(),
+            },
+            DangerRule {
+                source_category: TaintCategory::EnvVar,
+                sink_category: TaintCategory::Network,
+                severity: DangerSeverity::Critical,
+                name: "envvar→network".into(),
+                description: "Environment variable (credentials) sent over network".into(),
+            },
+            DangerRule {
+                source_category: TaintCategory::AgentMessage,
+                sink_category: TaintCategory::Database,
+                severity: DangerSeverity::Medium,
+                name: "agent-msg→db".into(),
+                description: "Agent message written to database".into(),
+            },
         ]
     }
 }
@@ -165,10 +210,17 @@ impl TaintEngine {
     }
 
     /// Check a sink operation against dangerous rules.
-    pub fn check_sink(&mut self, source_var: &str, sink_category: TaintCategory, sink_description: &str) {
+    pub fn check_sink(
+        &mut self,
+        source_var: &str,
+        sink_category: TaintCategory,
+        sink_description: &str,
+    ) {
         if let Some(source_taint) = self.var_taint.get(source_var) {
             for rule in &self.rules {
-                if source_taint.categories.contains(&rule.source_category) && rule.sink_category == sink_category {
+                if source_taint.categories.contains(&rule.source_category)
+                    && rule.sink_category == sink_category
+                {
                     self.violations.push(TaintViolation {
                         rule_name: rule.name.clone(),
                         source: format!("{:?}", source_taint.sources),

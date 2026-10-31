@@ -9,8 +9,8 @@
 //!   - inferall (pypi, Apr 2026) — OpenAI‑compatible REST API for any model
 //!   - oxillama‑runtime (lib.rs, Apr 2026) — pure Rust LLM inference engine
 
-use std::collections::HashMap;
 use crate::value::Value;
+use std::collections::HashMap;
 
 // ── Provider trait ──
 
@@ -20,7 +20,12 @@ pub trait Provider: Send + Sync {
     fn generate(&self, prompt: &str, max_tokens: u32) -> Result<String, String>;
 
     /// Generate with structured output constrained by a grammar.
-    fn generate_structured(&self, prompt: &str, grammar: &str, max_tokens: u32) -> Result<String, String>;
+    fn generate_structured(
+        &self,
+        prompt: &str,
+        grammar: &str,
+        max_tokens: u32,
+    ) -> Result<String, String>;
 
     /// Stream tokens as they are generated.
     fn stream(&self, prompt: &str) -> Result<Box<dyn Iterator<Item = String> + '_>, String>;
@@ -38,7 +43,11 @@ pub struct SchemaValidator {
 }
 
 impl SchemaValidator {
-    pub fn new() -> Self { Self { schemas: HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            schemas: HashMap::new(),
+        }
+    }
 
     /// Register a schema.
     pub fn register(&mut self, name: &str, schema: serde_json::Value) {
@@ -47,7 +56,9 @@ impl SchemaValidator {
 
     /// Validate data against a registered schema.
     pub fn validate(&self, schema_name: &str, data: &serde_json::Value) -> Result<(), String> {
-        let schema = self.schemas.get(schema_name)
+        let schema = self
+            .schemas
+            .get(schema_name)
             .ok_or_else(|| format!("Schema '{}' not found", schema_name))?;
         // Basic validation: check required fields exist
         if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
@@ -72,10 +83,18 @@ pub struct RepairEngine {
 }
 
 impl RepairEngine {
-    pub fn new() -> Self { Self { max_attempts: 3 } }
+    pub fn new() -> Self {
+        Self { max_attempts: 3 }
+    }
 
     /// Attempt to repair a schema‑violating output.
-    pub fn repair(&self, data: &serde_json::Value, schema_name: &str, validator: &SchemaValidator, provider: &dyn Provider) -> Result<serde_json::Value, String> {
+    pub fn repair(
+        &self,
+        data: &serde_json::Value,
+        schema_name: &str,
+        validator: &SchemaValidator,
+        provider: &dyn Provider,
+    ) -> Result<serde_json::Value, String> {
         let mut current = data.clone();
         for attempt in 0..self.max_attempts {
             if validator.validate(schema_name, &current).is_ok() {
@@ -133,7 +152,9 @@ impl InferenceEngine {
         grammar: Option<&str>,
         max_tokens: u32,
     ) -> Result<String, String> {
-        let provider = self.providers.get(&self.default_provider)
+        let provider = self
+            .providers
+            .get(&self.default_provider)
             .ok_or_else(|| format!("Provider '{}' not found", self.default_provider))?;
 
         let output = if let Some(gram) = grammar {

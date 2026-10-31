@@ -5,8 +5,8 @@
 //! 2026 three‑tier hardening blueprint (Input Sanitization, Execution
 //! Isolation, Output Filtering).
 
+use crate::taint::{SanitizePolicy, TaintLevel, TaintMeta};
 use crate::value::Value;
-use crate::taint::{TaintMeta, TaintLevel, SanitizePolicy};
 
 /// The sanitizer applies registered policies to values.
 pub struct Sanitizer {
@@ -24,7 +24,9 @@ pub struct NamedPolicy {
 
 impl Sanitizer {
     pub fn new() -> Self {
-        Self { policies: Vec::new() }
+        Self {
+            policies: Vec::new(),
+        }
     }
 
     /// Register a sanitization policy.

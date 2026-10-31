@@ -5,8 +5,8 @@
 //! Every token is cryptographically linked to the approval audit entry
 //! that created it, ensuring a verifiable chain of authorization.
 
-use std::collections::{HashMap, HashSet};
 use crate::value::Value;
+use std::collections::{HashMap, HashSet};
 
 // ── Capability Token ──
 
@@ -67,7 +67,9 @@ pub struct ResourcePattern {
 
 impl ResourcePattern {
     pub fn new(pattern: impl Into<String>) -> Self {
-        Self { pattern: pattern.into() }
+        Self {
+            pattern: pattern.into(),
+        }
     }
 
     /// Check whether a resource URI matches this pattern.
@@ -150,7 +152,10 @@ impl CapabilityManager {
         if self.revoked.contains(&token.id) {
             return Err(format!("Token {} has been revoked", token.id));
         }
-        if token.expiry.map_or(false, |exp| exp < chrono::Utc::now().timestamp()) {
+        if token
+            .expiry
+            .map_or(false, |exp| exp < chrono::Utc::now().timestamp())
+        {
             return Err("Token has already expired".into());
         }
         self.audit_log.push(AuditEntry {
@@ -167,8 +172,15 @@ impl CapabilityManager {
     /// Check whether an agent holds the required capability.
     pub fn check(&self, resource: &str, permission: &Permission) -> bool {
         for token in self.tokens.values() {
-            if self.revoked.contains(&token.id) { continue; }
-            if token.expiry.map_or(false, |exp| exp < chrono::Utc::now().timestamp()) { continue; }
+            if self.revoked.contains(&token.id) {
+                continue;
+            }
+            if token
+                .expiry
+                .map_or(false, |exp| exp < chrono::Utc::now().timestamp())
+            {
+                continue;
+            }
             let pattern = ResourcePattern::new(&token.resource);
             if pattern.matches(resource) && token.permissions.contains(permission) {
                 return true;
@@ -190,8 +202,15 @@ impl CapabilityManager {
     }
 
     /// Attenuate a token — create a new token with reduced scope.
-    pub fn attenuate(&self, token_id: &str, new_resource: &str, new_permissions: &[Permission]) -> Result<CapabilityToken, String> {
-        let original = self.tokens.get(token_id)
+    pub fn attenuate(
+        &self,
+        token_id: &str,
+        new_resource: &str,
+        new_permissions: &[Permission],
+    ) -> Result<CapabilityToken, String> {
+        let original = self
+            .tokens
+            .get(token_id)
             .ok_or_else(|| format!("Token {} not found", token_id))?;
 
         let mut chain = original.delegation_chain.clone();

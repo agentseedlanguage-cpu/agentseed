@@ -8,8 +8,8 @@
 //!   - AgenticPlanning (lib.rs, Mar 2026) — living intention graphs
 //!   - VMAO (arXiv:2603.11445, Mar 2026) — verified multi‑agent orchestration
 
-use std::collections::{HashMap, VecDeque};
 use crate::value::Value;
+use std::collections::{HashMap, VecDeque};
 
 // ── Goal and Task ──
 
@@ -23,7 +23,12 @@ pub struct Goal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GoalPriority { Low, Medium, High, Critical }
+pub enum GoalPriority {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
 
 /// A sub‑task decomposed from a goal.
 #[derive(Debug, Clone)]
@@ -60,7 +65,13 @@ pub struct Planner {
 }
 
 impl Planner {
-    pub fn new() -> Self { Self { provider: None, max_tokens: 4096, plan_cache: HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            provider: None,
+            max_tokens: 4096,
+            plan_cache: HashMap::new(),
+        }
+    }
 
     /// Decompose a goal into sub‑tasks.
     pub fn decompose(&mut self, goal: &Goal) -> Vec<SubTask> {
@@ -73,22 +84,31 @@ impl Planner {
         // Simple heuristic decomposition (production uses LLM via InferenceEngine)
         let tasks = vec![
             SubTask {
-                id: format!("{}-1", goal.id), goal_id: goal.id.clone(),
+                id: format!("{}-1", goal.id),
+                goal_id: goal.id.clone(),
                 description: format!("Analyze: {}", goal.description),
-                assigned_agent: None, status: TaskStatusEnum::Pending,
-                dependencies: vec![], result: None,
+                assigned_agent: None,
+                status: TaskStatusEnum::Pending,
+                dependencies: vec![],
+                result: None,
             },
             SubTask {
-                id: format!("{}-2", goal.id), goal_id: goal.id.clone(),
+                id: format!("{}-2", goal.id),
+                goal_id: goal.id.clone(),
                 description: format!("Execute: {}", goal.description),
-                assigned_agent: None, status: TaskStatusEnum::Pending,
-                dependencies: vec![format!("{}-1", goal.id)], result: None,
+                assigned_agent: None,
+                status: TaskStatusEnum::Pending,
+                dependencies: vec![format!("{}-1", goal.id)],
+                result: None,
             },
             SubTask {
-                id: format!("{}-3", goal.id), goal_id: goal.id.clone(),
+                id: format!("{}-3", goal.id),
+                goal_id: goal.id.clone(),
                 description: format!("Verify: {}", goal.completion_criteria),
-                assigned_agent: None, status: TaskStatusEnum::Pending,
-                dependencies: vec![format!("{}-2", goal.id)], result: None,
+                assigned_agent: None,
+                status: TaskStatusEnum::Pending,
+                dependencies: vec![format!("{}-2", goal.id)],
+                result: None,
             },
         ];
 
@@ -104,12 +124,18 @@ pub struct GoalVerifier {
 }
 
 impl GoalVerifier {
-    pub fn new() -> Self { Self { completion_checks: Vec::new() } }
+    pub fn new() -> Self {
+        Self {
+            completion_checks: Vec::new(),
+        }
+    }
 
     /// Verify that a goal's completion criteria are satisfied by task results.
     pub fn verify(&self, _goal: &Goal, completed_tasks: &[&SubTask]) -> bool {
         // All non‑skipped tasks must be completed
-        completed_tasks.iter().all(|t| t.status == TaskStatusEnum::Completed || t.status == TaskStatusEnum::Skipped)
+        completed_tasks
+            .iter()
+            .all(|t| t.status == TaskStatusEnum::Completed || t.status == TaskStatusEnum::Skipped)
     }
 }
 
@@ -121,7 +147,12 @@ pub struct RepairModule {
 }
 
 impl RepairModule {
-    pub fn new() -> Self { Self { max_retries: 3, retry_counts: HashMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            max_retries: 3,
+            retry_counts: HashMap::new(),
+        }
+    }
 
     /// Detect whether a failed task can be retried.
     pub fn can_retry(&self, task: &SubTask) -> bool {
@@ -154,7 +185,13 @@ pub struct EscalationRequest {
 }
 
 impl EscalationModule {
-    pub fn new() -> Self { Self { parent_agent: None, escalation_threshold: 3, pending_escalations: VecDeque::new() } }
+    pub fn new() -> Self {
+        Self {
+            parent_agent: None,
+            escalation_threshold: 3,
+            pending_escalations: VecDeque::new(),
+        }
+    }
 
     /// Determine whether escalation is needed.
     pub fn should_escalate(&self, task: &SubTask, attempts: u32) -> bool {
@@ -212,11 +249,17 @@ impl Orchestrator {
         let mut events = Vec::new();
 
         // Find ready tasks (all dependencies completed)
-        let ready_ids: Vec<String> = self.tasks.values()
+        let ready_ids: Vec<String> = self
+            .tasks
+            .values()
             .filter(|t| t.status == TaskStatusEnum::Ready || t.status == TaskStatusEnum::Pending)
-            .filter(|t| t.dependencies.iter().all(|dep| {
-                self.tasks.get(dep).map_or(false, |d| d.status == TaskStatusEnum::Completed)
-            }))
+            .filter(|t| {
+                t.dependencies.iter().all(|dep| {
+                    self.tasks
+                        .get(dep)
+                        .map_or(false, |d| d.status == TaskStatusEnum::Completed)
+                })
+            })
             .map(|t| t.id.clone())
             .collect();
 
@@ -231,16 +274,22 @@ impl Orchestrator {
         }
 
         // Check for failed tasks that need retry or escalation
-        let failed_ids: Vec<String> = self.tasks.values()
+        let failed_ids: Vec<String> = self
+            .tasks
+            .values()
             .filter(|t| t.status == TaskStatusEnum::Failed)
             .map(|t| t.id.clone())
             .collect();
 
         for id in failed_ids {
             let attempts = self.repair.retry_counts.get(&id).copied().unwrap_or(0);
-            if self.escalation.should_escalate(self.tasks.get(&id).unwrap(), attempts) {
+            if self
+                .escalation
+                .should_escalate(self.tasks.get(&id).unwrap(), attempts)
+            {
                 if let Some(task) = self.tasks.get(&id) {
-                    self.escalation.escalate(&task.goal_id, &id, "Max retries exceeded", attempts);
+                    self.escalation
+                        .escalate(&task.goal_id, &id, "Max retries exceeded", attempts);
                     events.push(OrchestrationEvent {
                         task_id: id,
                         kind: OrchestrationEventKind::Escalated,

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 // ── TEE types ──
 
 /// Supported TEE backends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TeeBackend {
     None,
     IntelTdx,
@@ -100,7 +100,8 @@ impl TeeVerifier {
 
     /// Register a known‑good measurement.
     pub fn register_measurement(&mut self, backend: TeeBackend, measurement: &str) {
-        self.known_measurements.insert(backend, measurement.to_string());
+        self.known_measurements
+            .insert(backend, measurement.to_string());
     }
 
     /// Verify attestation evidence.
