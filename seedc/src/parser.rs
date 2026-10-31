@@ -24,7 +24,7 @@ struct Parser<'a> {
     pos: usize,
 }
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
     }

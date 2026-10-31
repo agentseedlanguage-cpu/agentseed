@@ -130,6 +130,8 @@ impl Inferencer {
         }
     }
 
+    // `&self` is kept for API symmetry with the other unifier helpers.
+    #[allow(clippy::only_used_in_recursion)]
     fn occurs(&self, var: usize, ty: &Ty) -> bool {
         match ty {
             Ty::Var(v) => *v == var,
@@ -200,6 +202,7 @@ impl Inferencer {
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn instantiate_with(&self, subst: &HashMap<usize, Ty>, ty: &Ty) -> Ty {
         match ty {
             Ty::Var(v) => subst.get(v).cloned().unwrap_or(ty.clone()),

@@ -59,10 +59,13 @@ pub fn compile(source: &str) -> Result<Vec<u8>, CompileError> {
     let tokens = lexer::tokenize(source)?;
     let cst = parser::parse(&tokens)?;
 
-    // ── Temporary AST dump ──
-    let dump = format!("{:#?}", &cst);
-    std::fs::write("ast_dump.txt", &dump).ok();
-    // ── End dump ──
+    // ── Optional AST dump (debugging aid) ──
+    // Previously written unconditionally to ./ast_dump.txt on every compile,
+    // which is a surprising side effect for a library. Opt in with SEEDC_DUMP_AST=1.
+    if std::env::var_os("SEEDC_DUMP_AST").is_some() {
+        let dump = format!("{:#?}", &cst);
+        std::fs::write("ast_dump.txt", &dump).ok();
+    }
 
     let typed = sema::check(cst)?;
     let ir_mod = lowering::lower(&typed);
