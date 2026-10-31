@@ -1,12 +1,24 @@
 #![allow(clippy::all)]
 #![allow(unused)]
+pub mod bi_temporal;
+pub mod capability;
+pub mod choreographic;
 pub mod computation;
+pub mod datalog;
 pub mod executor;
+pub mod inference;
 pub mod memory;
+pub mod orchestrator;
 pub mod protocols;
 pub mod rng;
+pub mod sanitize;
 pub mod schedule;
 pub mod state;
+pub mod taint;
+pub mod tee;
+pub mod trace_events;
+pub mod uncertain_kind;
+pub mod uncertainty;
 pub mod value;
 
 use seedc::ir::Module;
