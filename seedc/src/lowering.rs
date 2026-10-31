@@ -16,6 +16,9 @@ pub fn lower(program: &Program) -> Module {
 struct Lowerer {
     module: Module,
     current_func: Option<FuncId>,
+    /// Lexical scope stack: identifier name -> local slot (VarId).
+    /// Innermost scope is last. Function parameters occupy slots 0..n.
+    scopes: Vec<std::collections::HashMap<String, VarId>>,
 }
 
 impl Lowerer {
@@ -23,6 +26,58 @@ impl Lowerer {
         Self {
             module: Module::new(),
             current_func: None,
+            scopes: Vec::new(),
+        }
+    }
+
+    // ── Lexical scopes (name -> local slot) ──────────────────────────────
+
+    fn push_scope(&mut self) {
+        self.scopes.push(std::collections::HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn bind_name(&mut self, name: &str, slot: VarId) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name.to_owned(), slot);
+        }
+    }
+
+    fn lookup_name(&self, name: &str) -> Option<VarId> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|sc| sc.get(name).copied())
+    }
+
+    /// Bind the name introduced by a `let` pattern (simple bindings only;
+    /// destructuring patterns are handled in a later milestone).
+    fn bind_pattern(&mut self, pat: &Pattern, slot: VarId) {
+        if let PatternKind::Binding(ident, None) = &pat.kind {
+            self.bind_name(&ident.name, slot);
+        }
+    }
+
+    /// Lower an identifier reference.
+    ///
+    /// The VM is a stack machine, so a reference must *push* the variable's
+    /// value: emit `LoadLocal [Var(slot)]`. Unresolved names (functions,
+    /// globals, builtins) lower to `Null` rather than silently aliasing slot 0,
+    /// which was the previous behaviour.
+    fn lower_ident(&mut self, ident: &Ident, blk: BlockId) -> Operand {
+        match self.lookup_name(&ident.name) {
+            Some(slot) => {
+                let func = self.func();
+                func.push_instr(
+                    blk,
+                    Instr::new(Opcode::LoadLocal, None, vec![Operand::Var(slot)]),
+                );
+                Operand::Var(slot)
+            }
+            None => Operand::Null,
         }
     }
 
@@ -64,6 +119,10 @@ impl Lowerer {
         let func = Function::new(f.name.name.clone(), (0..f.params.len()).collect(), ret_ty);
         let fid = self.module.add_function(func);
         self.current_func = Some(fid);
+        self.push_scope();
+        for (i, param) in f.params.iter().enumerate() {
+            self.bind_name(&param.name.name, i);
+        }
         if let Some(body) = &f.body {
             let entry = self.module.functions[fid].entry;
             let last_val = self.lower_block(body, entry);
@@ -73,10 +132,12 @@ impl Lowerer {
             };
             self.module.functions[fid].set_terminator(entry, term);
         }
+        self.pop_scope();
         self.current_func = None;
     }
 
     fn lower_block(&mut self, block: &BlockExpr, blk: BlockId) -> Option<Operand> {
+        self.push_scope();
         let mut last_val = None;
         for stmt in &block.stmts {
             last_val = self.lower_stmt(stmt, blk);
@@ -84,6 +145,7 @@ impl Lowerer {
         if let Some(e) = &block.last {
             last_val = Some(self.lower_expr(e, blk));
         }
+        self.pop_scope();
         last_val
     }
 
@@ -97,6 +159,7 @@ impl Lowerer {
                     blk,
                     Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(var), val]),
                 );
+                self.bind_pattern(&l.pattern, var);
                 Some(Operand::Var(var))
             }
             Stmt::Expr(e) => Some(self.lower_expr(e, blk)),
@@ -265,6 +328,7 @@ impl Lowerer {
                     blk,
                     Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(var), val]),
                 );
+                self.bind_pattern(&l.pattern, var);
                 Operand::Var(var)
             }
 
@@ -717,5 +781,63 @@ impl Lowerer {
             },
             _ => IrType::Unknown,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lower_src(src: &str) -> Module {
+        let tokens = crate::lexer::tokenize(src).expect("lex");
+        let program = crate::parser::parse(&tokens).expect("parse");
+        lower(&program)
+    }
+
+    fn instrs(m: &Module, func: &str) -> Vec<Instr> {
+        let f = m
+            .functions
+            .iter()
+            .find(|f| f.name == func)
+            .expect("function present");
+        f.blocks.iter().flat_map(|b| b.instrs.clone()).collect()
+    }
+
+    fn loads(is: &[Instr]) -> Vec<usize> {
+        is.iter()
+            .filter(|i| matches!(i.opcode, Opcode::LoadLocal))
+            .filter_map(|i| match i.operands.first() {
+                Some(Operand::Var(v)) => Some(*v),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Regression for the VeriChain bug: every identifier used to lower to
+    /// `Var(0)` (and push nothing), so distinct variables aliased.
+    #[test]
+    fn distinct_variables_get_distinct_slots() {
+        let m = lower_src("fn main() { let x = 2; let y = 3; x + y }");
+        let is = instrs(&m, "main");
+        assert_eq!(loads(&is), vec![0, 1], "x -> slot 0, y -> slot 1");
+    }
+
+    #[test]
+    fn parameters_bind_to_their_positions() {
+        let m = lower_src("fn f(a: i32, b: i32) -> i32 { b + a }");
+        let is = instrs(&m, "f");
+        assert_eq!(loads(&is), vec![1, 0], "b -> slot 1 then a -> slot 0");
+    }
+
+    #[test]
+    fn shadowing_resolves_to_innermost_binding() {
+        let m = lower_src("fn main() { let x = 1; let x = 2; x }");
+        assert_eq!(loads(&instrs(&m, "main")), vec![1]);
+    }
+
+    #[test]
+    fn unresolved_names_do_not_alias_slot_zero() {
+        let m = lower_src("fn main() { let x = 1; unknown_name }");
+        assert!(loads(&instrs(&m, "main")).is_empty());
     }
 }

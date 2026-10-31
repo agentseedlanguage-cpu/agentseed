@@ -43,9 +43,12 @@ fn verify_function(func: &Function) -> Result<(), IrError> {
         });
     }
 
-    // Check each block
+    // Check each block. `defined` is carried across blocks (in id order) so a
+    // slot written in an earlier block is visible later. NOTE: this is a
+    // conservative approximation of dominance, not a full dominator-tree check.
+    let mut defined: HashSet<VarId> = func.params.iter().cloned().collect();
     for block in &func.blocks {
-        verify_block(func, block)?;
+        verify_block(block, &mut defined)?;
     }
 
     // Check terminators reference valid blocks
@@ -77,13 +80,20 @@ fn verify_function(func: &Function) -> Result<(), IrError> {
     Ok(())
 }
 
-fn verify_block(func: &Function, block: &BasicBlock) -> Result<(), IrError> {
-    let mut defined: HashSet<VarId> = func.params.iter().cloned().collect();
+fn verify_block(block: &BasicBlock, defined: &mut HashSet<VarId>) -> Result<(), IrError> {
     let mut discharged = false; // Track if we've seen a Discharge before a Perform
 
     for instr in &block.instrs {
+        // `StoreLocal [Var(slot), value]` *defines* `slot`; its first operand is a
+        // write target, not a use, so it is exempt from the defined-before-use check.
+        let store_target = match (&instr.opcode, instr.operands.first()) {
+            (Opcode::StoreLocal, Some(Operand::Var(slot))) => Some(*slot),
+            _ => None,
+        };
+        let skip = usize::from(store_target.is_some());
+
         // Check that all operand variables are defined
-        for op in &instr.operands {
+        for op in instr.operands.iter().skip(skip) {
             if let Operand::Var(v) = op {
                 if !defined.contains(v) {
                     return Err(IrError::UndefinedVar(*v));
@@ -112,9 +122,12 @@ fn verify_block(func: &Function, block: &BasicBlock) -> Result<(), IrError> {
             _ => {}
         }
 
-        // Mark destination as defined
+        // Mark destination / store target as defined
         if let Some(dest) = instr.dest {
             defined.insert(dest);
+        }
+        if let Some(slot) = store_target {
+            defined.insert(slot);
         }
     }
     Ok(())
@@ -129,4 +142,63 @@ fn verify_binary_op(instr: &Instr) -> Result<(), IrError> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn func_with(params: usize, instrs: Vec<Instr>) -> Function {
+        let mut f = Function::new("t".into(), (0..params).collect(), IrType::Void);
+        for i in instrs {
+            f.push_instr(0, i);
+        }
+        f
+    }
+    fn store(slot: VarId) -> Instr {
+        Instr::new(
+            Opcode::StoreLocal,
+            None,
+            vec![Operand::Var(slot), Operand::Int(1)],
+        )
+    }
+    fn load(slot: VarId) -> Instr {
+        Instr::new(Opcode::LoadLocal, None, vec![Operand::Var(slot)])
+    }
+
+    #[test]
+    fn store_then_load_is_valid() {
+        assert!(verify_function(&func_with(0, vec![store(0), load(0)])).is_ok());
+    }
+
+    #[test]
+    fn load_before_store_is_rejected() {
+        let r = verify_function(&func_with(0, vec![load(0), store(0)]));
+        assert!(matches!(r, Err(IrError::UndefinedVar(0))));
+    }
+
+    #[test]
+    fn parameters_are_defined_on_entry() {
+        assert!(verify_function(&func_with(2, vec![load(0), load(1)])).is_ok());
+    }
+
+    #[test]
+    fn load_of_never_defined_slot_is_rejected() {
+        let r = verify_function(&func_with(1, vec![load(5)]));
+        assert!(matches!(r, Err(IrError::UndefinedVar(5))));
+    }
+
+    #[test]
+    fn definitions_carry_across_blocks() {
+        let mut f = Function::new("t".into(), vec![], IrType::Void);
+        f.push_instr(0, store(0));
+        let b1 = f.blocks.len();
+        f.blocks.push(BasicBlock {
+            id: b1,
+            instrs: vec![load(0)],
+            terminator: Terminator::Halt,
+        });
+        f.set_terminator(0, Terminator::Jump(b1));
+        assert!(verify_function(&f).is_ok());
+    }
 }
