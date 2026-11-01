@@ -1,21 +1,38 @@
 //! Agent‑to‑Agent (A2A) v1.0 Protocol — native inter‑agent communication.
 //!
-//! A2A was released March 12, 2026 under the Linux Foundation, donated by
-//! Google with IBM ACP merged in. It defines Agent Cards for self‑describing
-//! metadata, a nine‑state task lifecycle, and three transports (JSON‑RPC,
-//! HTTP+JSON/REST, gRPC).
+//! A2A v1.0.0 was released 12 March 2026 (Linux Foundation; since August 2026 a
+//! Growth‑Stage project of the Agentic AI Foundation). Three bindings carry the
+//! same eleven operations: JSON‑RPC 2.0, gRPC and HTTP+JSON/REST.
 //!
-//! References:
-//!   - A2A v1.0 specification (a2a-protocol.org)
-//!   - openspawn/openspawn#734 — production A2A architecture
-//!   - Google A2A overview (atlan.com, May 2026)
+//! **Verified against the official quick reference / specification at
+//! a2a-protocol.org (v1.0.0) on 2026‑10‑31.** The normative source of truth is
+//! `specification/a2a.proto`; this module is a hand‑written subset and MUST be
+//! regenerated/re‑checked from the proto before any conformance claim.
+//!
+//! Facts encoded here (and previously wrong in this file):
+//!   * Agent Card path is `/.well-known/agent-card.json` (v0.3 used `agent.json`).
+//!   * Task states: SUBMITTED, WORKING, INPUT_REQUIRED, AUTH_REQUIRED (interrupted);
+//!     COMPLETED, FAILED, CANCELED, REJECTED (terminal) — eight states, plus the
+//!     proto zero value UNSPECIFIED. There is no `PENDING`, `PAUSED` or `EXPIRED`.
+//!   * Operations: SendMessage, SendStreamingMessage, GetTask, ListTasks,
+//!     CancelTask, SubscribeToTask, GetExtendedAgentCard and Create/Get/List/Delete
+//!     TaskPushNotificationConfig. (`Authenticate`, `GetExtensions`,
+//!     `ExecuteExtension`, `SetTaskArtifact`… are NOT A2A operations.)
+//!   * Terminal tasks accept no further messages (`UnsupportedOperationError`).
+//!
+//! Still to do: typed request/response messages from the proto, signed Agent
+//! Cards (JWS over JCS), the `A2A-Version` service parameter / version negotiation,
+//! streaming, push notifications, and the official TCK (github.com/a2aproject/a2a-tck).
 
 use std::collections::HashMap;
+
+/// Well‑known discovery path for the Agent Card (A2A v1.0.0; RFC 8615).
+pub const AGENT_CARD_PATH: &str = "/.well-known/agent-card.json";
 
 // ── AgentCard ──
 
 /// Self‑describing metadata published by every A2A‑compliant agent.
-/// Served at `GET /.well-known/agent.json`.
+/// Served at `GET /.well-known/agent-card.json` ([`AGENT_CARD_PATH`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AgentCard {
     /// Unique agent identifier (DID or UUID).
@@ -66,29 +83,53 @@ pub enum AuthMethod {
     ApiKey,
 }
 
-// ── Task lifecycle (9 states) ──
+// ── Task lifecycle (A2A v1.0.0) ──
 
-/// A2A task states — the complete lifecycle of long‑running agent work.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// A2A task states. Wire names are the v1.0 `TASK_STATE_*` enum strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum TaskState {
-    /// Task received, not yet accepted.
+    /// Proto3 zero value; an implementation SHOULD treat it as an error.
+    #[serde(rename = "TASK_STATE_UNSPECIFIED")]
+    Unspecified,
+    /// Task accepted but not yet started.
+    #[serde(rename = "TASK_STATE_SUBMITTED")]
     Submitted,
-    /// Task accepted, waiting for capacity.
-    Pending,
     /// Agent is actively working.
+    #[serde(rename = "TASK_STATE_WORKING")]
     Working,
-    /// Agent needs additional input from the task owner.
+    /// Interrupted: the agent needs more input from the client.
+    #[serde(rename = "TASK_STATE_INPUT_REQUIRED")]
     InputRequired,
-    /// Work complete, output ready.
+    /// Interrupted: the agent needs (additional) authentication.
+    #[serde(rename = "TASK_STATE_AUTH_REQUIRED")]
+    AuthRequired,
+    /// Terminal: work complete.
+    #[serde(rename = "TASK_STATE_COMPLETED")]
     Completed,
-    /// Work finished with errors.
+    /// Terminal: work finished with an error.
+    #[serde(rename = "TASK_STATE_FAILED")]
     Failed,
-    /// Task explicitly cancelled by the task owner.
+    /// Terminal: cancelled.
+    #[serde(rename = "TASK_STATE_CANCELED")]
     Canceled,
-    /// Task rejected by the agent.
+    /// Terminal: the agent declined the task.
+    #[serde(rename = "TASK_STATE_REJECTED")]
     Rejected,
-    /// Task paused (e.g., for human approval).
-    Paused,
+}
+
+impl TaskState {
+    /// Terminal states are final: no further messages, no further transitions.
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            TaskState::Completed | TaskState::Failed | TaskState::Canceled | TaskState::Rejected
+        )
+    }
+
+    /// Interrupted states wait on the client rather than the agent.
+    pub fn is_interrupted(self) -> bool {
+        matches!(self, TaskState::InputRequired | TaskState::AuthRequired)
+    }
 }
 
 /// A tracked A2A task.
@@ -120,56 +161,81 @@ pub struct TaskEvent {
     pub reason: Option<String>,
 }
 
-// ── RPC methods (11 defined by A2A v1.0) ──
+// ── Operations (the eleven defined by A2A v1.0.0) ──
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "method", content = "params")]
-pub enum A2ARpcMethod {
-    /// Send a message to an agent.
-    #[serde(rename = "SendMessage")]
-    SendMessage {
-        task_id: String,
-        message: serde_json::Value,
-    },
-    /// Retrieve a task by ID.
-    #[serde(rename = "GetTask")]
-    GetTask { task_id: String },
-    /// List tasks matching optional filters.
-    #[serde(rename = "ListTasks")]
-    ListTasks {
-        context_id: Option<String>,
-        state: Option<TaskState>,
-    },
-    /// Cancel a running task.
-    #[serde(rename = "CancelTask")]
-    CancelTask { task_id: String },
-    /// Subscribe to push notifications for a task.
-    #[serde(rename = "SubscribeTask")]
-    SubscribeTask { task_id: String },
-    /// Unsubscribe from task notifications.
-    #[serde(rename = "UnsubscribeTask")]
-    UnsubscribeTask { task_id: String },
-    /// Set a task's artifact.
-    #[serde(rename = "SetTaskArtifact")]
-    SetTaskArtifact { task_id: String, artifact: Artifact },
-    /// Get a task's artifact.
-    #[serde(rename = "GetTaskArtifact")]
-    GetTaskArtifact {
-        task_id: String,
-        artifact_id: String,
-    },
-    /// Propose a task to be listed on the agent's public board.
-    #[serde(rename = "ProposeTask")]
-    ProposeTask { task: Task },
-    /// Accept a proposed task.
-    #[serde(rename = "AcceptTask")]
-    AcceptTask { task_id: String },
-    /// Reject a proposed task.
-    #[serde(rename = "RejectTask")]
-    RejectTask {
-        task_id: String,
-        reason: Option<String>,
-    },
+/// The eleven A2A v1.0.0 operations. Names are identical across the JSON‑RPC and
+/// gRPC bindings (v0.3 names such as `message/send` were retired in v1.0).
+/// Typed request/response payloads are generated from `a2a.proto` in a later milestone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum A2aOperation {
+    SendMessage,
+    SendStreamingMessage,
+    GetTask,
+    ListTasks,
+    CancelTask,
+    SubscribeToTask,
+    GetExtendedAgentCard,
+    CreateTaskPushNotificationConfig,
+    GetTaskPushNotificationConfig,
+    ListTaskPushNotificationConfigs,
+    DeleteTaskPushNotificationConfig,
+}
+
+impl A2aOperation {
+    pub const ALL: [A2aOperation; 11] = [
+        A2aOperation::SendMessage,
+        A2aOperation::SendStreamingMessage,
+        A2aOperation::GetTask,
+        A2aOperation::ListTasks,
+        A2aOperation::CancelTask,
+        A2aOperation::SubscribeToTask,
+        A2aOperation::GetExtendedAgentCard,
+        A2aOperation::CreateTaskPushNotificationConfig,
+        A2aOperation::GetTaskPushNotificationConfig,
+        A2aOperation::ListTaskPushNotificationConfigs,
+        A2aOperation::DeleteTaskPushNotificationConfig,
+    ];
+
+    /// Binding‑level method name (JSON‑RPC `method`, gRPC rpc name).
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            A2aOperation::SendMessage => "SendMessage",
+            A2aOperation::SendStreamingMessage => "SendStreamingMessage",
+            A2aOperation::GetTask => "GetTask",
+            A2aOperation::ListTasks => "ListTasks",
+            A2aOperation::CancelTask => "CancelTask",
+            A2aOperation::SubscribeToTask => "SubscribeToTask",
+            A2aOperation::GetExtendedAgentCard => "GetExtendedAgentCard",
+            A2aOperation::CreateTaskPushNotificationConfig => "CreateTaskPushNotificationConfig",
+            A2aOperation::GetTaskPushNotificationConfig => "GetTaskPushNotificationConfig",
+            A2aOperation::ListTaskPushNotificationConfigs => "ListTaskPushNotificationConfigs",
+            A2aOperation::DeleteTaskPushNotificationConfig => "DeleteTaskPushNotificationConfig",
+        }
+    }
+
+    pub fn from_wire_name(name: &str) -> Option<A2aOperation> {
+        A2aOperation::ALL
+            .into_iter()
+            .find(|op| op.wire_name() == name)
+    }
+
+    /// Operations that are only valid when the Agent Card declares the capability.
+    pub fn requires_streaming(self) -> bool {
+        matches!(
+            self,
+            A2aOperation::SendStreamingMessage | A2aOperation::SubscribeToTask
+        )
+    }
+
+    pub fn requires_push_notifications(self) -> bool {
+        matches!(
+            self,
+            A2aOperation::CreateTaskPushNotificationConfig
+                | A2aOperation::GetTaskPushNotificationConfig
+                | A2aOperation::ListTaskPushNotificationConfigs
+                | A2aOperation::DeleteTaskPushNotificationConfig
+        )
+    }
 }
 
 // ── A2A Service ──
@@ -235,17 +301,33 @@ impl A2AService {
     }
 
     /// Transition a task to a new state.
-    pub fn transition_task(&mut self, task_id: &str, new_state: TaskState, reason: Option<String>) {
-        if let Some(task) = self.tasks.get_mut(task_id) {
-            let old_state = task.state;
-            task.state = new_state;
-            task.history.push(TaskEvent {
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                from_state: old_state,
-                to_state: new_state,
-                reason,
-            });
+    ///
+    /// Terminal states are final (A2A v1.0.0): leaving one is an error. Previously
+    /// this silently allowed e.g. `Completed -> Working`.
+    pub fn transition_task(
+        &mut self,
+        task_id: &str,
+        new_state: TaskState,
+        reason: Option<String>,
+    ) -> Result<(), String> {
+        let task = self
+            .tasks
+            .get_mut(task_id)
+            .ok_or_else(|| format!("Task {task_id} not found"))?;
+        let old_state = task.state;
+        if old_state.is_terminal() {
+            return Err(format!(
+                "Task {task_id} is in terminal state {old_state:?}; cannot transition to {new_state:?}"
+            ));
         }
+        task.state = new_state;
+        task.history.push(TaskEvent {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            from_state: old_state,
+            to_state: new_state,
+            reason,
+        });
+        Ok(())
     }
 
     /// Execute a SendMessage RPC.
@@ -254,21 +336,153 @@ impl A2AService {
         task_id: &str,
         _message: &serde_json::Value,
     ) -> Result<(), String> {
-        if let Some(task) = self.tasks.get(task_id) {
-            if task.state == TaskState::Completed
-                || task.state == TaskState::Failed
-                || task.state == TaskState::Canceled
-                || task.state == TaskState::Rejected
-            {
-                return Err(format!(
-                    "Cannot send message to task in state {:?}",
-                    task.state
-                ));
+        match self.tasks.get(task_id) {
+            None => Err(format!("Task {task_id} not found")),
+            Some(task) if task.state.is_terminal() => Err(format!(
+                "Cannot send message to task in terminal state {:?}",
+                task.state
+            )),
+            Some(_) => {
+                self.transition_task(task_id, TaskState::Working, Some("message received".into()))
             }
-            self.transition_task(task_id, TaskState::Working, Some("message received".into()));
-            Ok(())
-        } else {
-            Err(format!("Task {} not found", task_id))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn svc() -> A2AService {
+        let card: AgentCard = serde_json::from_value(serde_json::json!({
+            "id": "agent-1", "name": "t", "description": "d",
+            "skills": [], "io_modes": [], "auth": null, "endpoint": "http://x", "version": "1.0.0"
+        }))
+        .unwrap_or_else(|e| panic!("card fixture must deserialize: {e}"));
+        A2AService::new(card)
+    }
+
+    #[test]
+    fn agent_card_path_is_v1_not_v0_3() {
+        assert_eq!(AGENT_CARD_PATH, "/.well-known/agent-card.json");
+        assert!(!AGENT_CARD_PATH.contains("agent.json"));
+    }
+
+    #[test]
+    fn terminal_and_interrupted_partition_matches_the_standard() {
+        use TaskState::*;
+        for s in [Completed, Failed, Canceled, Rejected] {
+            assert!(s.is_terminal() && !s.is_interrupted(), "{s:?}");
+        }
+        for s in [InputRequired, AuthRequired] {
+            assert!(s.is_interrupted() && !s.is_terminal(), "{s:?}");
+        }
+        for s in [Submitted, Working, Unspecified] {
+            assert!(!s.is_terminal() && !s.is_interrupted(), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn states_serialize_to_v1_wire_names() {
+        let j = |s: TaskState| serde_json::to_string(&s).unwrap();
+        assert_eq!(j(TaskState::Working), "\"TASK_STATE_WORKING\"");
+        assert_eq!(j(TaskState::AuthRequired), "\"TASK_STATE_AUTH_REQUIRED\"");
+        assert_eq!(j(TaskState::Rejected), "\"TASK_STATE_REJECTED\"");
+        let back: TaskState = serde_json::from_str("\"TASK_STATE_CANCELED\"").unwrap();
+        assert_eq!(back, TaskState::Canceled);
+    }
+
+    #[test]
+    fn retired_states_are_rejected_on_the_wire() {
+        for bad in [
+            "TASK_STATE_PENDING",
+            "TASK_STATE_PAUSED",
+            "TASK_STATE_EXPIRED",
+        ] {
+            assert!(
+                serde_json::from_str::<TaskState>(&format!("\"{bad}\"")).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn there_are_exactly_eleven_operations_with_unique_wire_names() {
+        let names: std::collections::HashSet<_> =
+            A2aOperation::ALL.iter().map(|o| o.wire_name()).collect();
+        assert_eq!(A2aOperation::ALL.len(), 11);
+        assert_eq!(names.len(), 11);
+        for op in A2aOperation::ALL {
+            assert_eq!(A2aOperation::from_wire_name(op.wire_name()), Some(op));
+        }
+    }
+
+    #[test]
+    fn non_standard_and_v0_3_method_names_are_unknown() {
+        for bad in [
+            "message/send",
+            "tasks/get",
+            "Authenticate",
+            "GetExtensions",
+            "ExecuteExtension",
+            "SetTaskArtifact",
+            "SubscribeTask",
+            "GetAgentCard",
+        ] {
+            assert_eq!(A2aOperation::from_wire_name(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn capability_gated_operations() {
+        assert!(A2aOperation::SendStreamingMessage.requires_streaming());
+        assert!(A2aOperation::SubscribeToTask.requires_streaming());
+        assert!(!A2aOperation::SendMessage.requires_streaming());
+        assert!(A2aOperation::DeleteTaskPushNotificationConfig.requires_push_notifications());
+        assert!(!A2aOperation::GetTask.requires_push_notifications());
+    }
+
+    #[test]
+    fn terminal_tasks_are_final() {
+        let mut s = svc();
+        let id = s.create_task("agent-1", serde_json::json!({}));
+        s.transition_task(&id, TaskState::Completed, None).unwrap();
+        assert!(s.transition_task(&id, TaskState::Working, None).is_err());
+        assert_eq!(s.tasks[&id].state, TaskState::Completed);
+    }
+
+    #[test]
+    fn send_message_rejected_for_every_terminal_state() {
+        for t in [
+            TaskState::Completed,
+            TaskState::Failed,
+            TaskState::Canceled,
+            TaskState::Rejected,
+        ] {
+            let mut s = svc();
+            let id = s.create_task("agent-1", serde_json::json!({}));
+            s.transition_task(&id, t, None).unwrap();
+            assert!(
+                s.send_message(&id, &serde_json::json!({})).is_err(),
+                "{t:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn send_message_resumes_interrupted_tasks() {
+        let mut s = svc();
+        let id = s.create_task("agent-1", serde_json::json!({}));
+        s.transition_task(&id, TaskState::InputRequired, None)
+            .unwrap();
+        s.send_message(&id, &serde_json::json!({})).unwrap();
+        assert_eq!(s.tasks[&id].state, TaskState::Working);
+    }
+
+    #[test]
+    fn unknown_task_is_an_error_not_a_silent_noop() {
+        let mut s = svc();
+        assert!(s.transition_task("nope", TaskState::Working, None).is_err());
+        assert!(s.send_message("nope", &serde_json::json!({})).is_err());
     }
 }
