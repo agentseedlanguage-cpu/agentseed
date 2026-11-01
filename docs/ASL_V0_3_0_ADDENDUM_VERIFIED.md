@@ -16,6 +16,8 @@ and records what is verified, what is not, and what the repository actually cont
 | CoMem: collective/individual memory, avoids "memory pollution" | Yu et al., Beihang, arXiv:2609.15009 (read in full) | **VERIFIED** | Promotion rule is empirical (usage ≥ N_min AND mean reward ≥ baseline), not "3 agent verifications". See §2.4. Gains: +8.02 (ALFWorld), +4.70 (PDDL) avg over no-memory. |
 | Lean4Agent: Lean4 library for agent workflow verification | Wang et al., UIUC, arXiv:2606.06523 (abstract + summaries) | **VERIFIED** | Verified workflows beat failing ones by ~11.94% avg; LeanEvolve +7.47% on SWE. This is *correlational* evidence about workflow quality, not a safety proof. The "Claude-Opus-4.6, 40 workflows" detail is **unconfirmed — removed**. |
 | EU AI Act "enforceable August 2026" (Art. 12 driver) | Council/Parliament/law-firm summaries | **OUTDATED** | Digital Omnibus political agreement 7 May 2026; Parliament plenary 16 Jun 2026: Annex III high-risk → **2 Dec 2027**, Annex I embedded → **2 Aug 2028**. Art. 50 transparency largely unchanged. *Final OJ publication not confirmed by the sources retrieved — verify.* |
+| A2A v1.0.0: 11 operations, 9 task states incl. `EXPIRED`, card at `/.well-known/agent.json`, ops `Authenticate/GetExtensions/ExecuteExtension` (spec §18) | Official A2A v1.0.0 reference, a2a-protocol.org (read 2026-10-31) | **FALSE in the spec** | 8 states (+proto zero value); no `EXPIRED`/`PENDING`/`PAUSED`. Card path is `/.well-known/agent-card.json`. The 11 real operations are listed in §7. `Authenticate`, `GetExtensions`, `ExecuteExtension`, `GetAgentCard` are not A2A v1.0.0 operations. |
+| MCP "2025-11-25" with `initialize` handshake, `ping`, sessions (spec §19.6, tests MCP-02/05) | Official MCP changelog + `2026-07-28` release tag | **OUTDATED** | Current stable revision is **2026-07-28** (final 28 Jul 2026): stateless, no handshake/sessions, per-request `_meta`; `ping`, `logging/setLevel`, `notifications/roots/list_changed` removed. `2025-11-25` is the *legacy* era. |
 | NanoZK "5.5 KB proof, 24 ms verify, ε<1e-37", zkAgent, Jolt Atlas | v0.2 addendum text | **UNVERIFIED** | Not re-checked. Treat as unconfirmed vendor/paper claims; do not cite as facts in the spec. |
 | VIGIL, FORGE, NFV (2608.21516), SAGE-Agent, AgentSPEX, 007, ASHE, Codifide | earlier research report | **UNVERIFIED (snippet-level)** | Keep as "related work to review", not as normative grounding. |
 | "No competitor has X" (uncertainty intervals, dream cycle, etc.) | earlier report | **UNVERIFIED / likely too strong** | Rephrase as "not found in the systems reviewed" with the list of systems reviewed. |
@@ -126,8 +128,14 @@ Findings, all reproducible; fixes marked ✅ are in this patch.
 10. ☐ Real surface syntax is the `seed name { §SECTION {…} }` document form; the spec's `agent X {…}`,
     `discharge … with {…}`, `infer<T>(…)` EBNF is **not** what the parser accepts. Pick one and align spec ↔ parser.
 
-Test counts (this branch): seedc 20 · seedvm 57 · seedc-cli bin 7 → **84**, from a baseline of 17
-(one of which hung).
+11. ✅ **`protocols/a2a.rs` deviated from A2A v1.0.0** (details in §7): v0.3 card path, invented states
+    (`Pending`, `Paused`), missing `AuthRequired`, an RPC enum of non-standard operations, and a logic bug —
+    `transition_task` let a **terminal task return to `Working`**. Fixed and tested.
+12. ✅ **`protocols/mcp.rs` had no version or `_meta` handling.** Added the verified 2026-07-28 request-metadata
+    contract (required keys, `-32602`, era classification). The server itself is still an in-memory registry.
+
+Test counts (this branch): seedc 20 · seedvm 75 · seedc-cli bin 7 → **102**, from a baseline of 17
+(one of which hung). `protocols/*` previously had **0** tests; `a2a.rs` now has 11 and `mcp.rs` 7.
 
 ---
 ## 5. Arc42 amendments
@@ -146,6 +154,11 @@ Test counts (this branch): seedc 20 · seedvm 57 · seedc-cli bin 7 → **84**, 
 * **ADR-018 (new)** *Verifier contract:* defined-before-use is per function, order-carrying; params
   and `StoreLocal` targets define slots.
 * **ADR-019 (new)** *Debug side effects:* library code performs no filesystem writes unless opted in.
+* **ADR-021 (new)** *Protocol conformance:* pin each binding to a dated upstream revision (A2A v1.0.0,
+  MCP 2026-07-28) in code comments *and* constants; generate types from `a2a.proto` / MCP `schema.ts`
+  rather than hand-writing them; gate releases on the official A2A TCK (a2aproject/a2a-tck).
+* **ADR-022 (new)** *MCP is stateless (2026-07-28):* no session state in the server for the current
+  revision; legacy (`<= 2025-11-25`) sessions, if supported at all, live behind an explicit compat shim.
 * **ADR-020 (proposed)** *IR execution model:* stack-IR vs SSA — decide and document.
 
 ## 6. Next milestones (acceptance criteria)
@@ -155,4 +168,38 @@ Test counts (this branch): seedc 20 · seedvm 57 · seedc-cli bin 7 → **84**, 
 2. **Tests for the seven revived modules** (≥ 1 behavioural test per public fn).
 3. **ADR-020 resolved**, then lowering emits real constants (no `String(0)`), executor honours operands.
 4. **TraceSpecAlgebra per §2.3** with a 3-outcome discharge test matrix (proved/residual/rejected).
-5. CI: dead-module guard (ADR-017), `cargo test --workspace --lib --tests`, clippy denied warnings.
+5. **Protocol bindings:** generate A2A types from `a2a.proto`; implement `GetExtendedAgentCard`, streaming and
+   push-notification configs; signed Agent Cards (JWS over JCS RFC 8785); `A2A-Version` negotiation; run the
+   official TCK. MCP: tools/resources/prompts over the stateless contract, `serverInfo` in result `_meta`.
+6. CI: dead-module guard (ADR-017), `cargo test --workspace --lib --tests`, clippy denied warnings.
+
+---
+## 7. Protocol bindings — verified facts (replaces spec §18 and §19 where they conflict)
+
+### 7.1 A2A v1.0.0 (released 2026-03-12; normative source `a2a.proto`)
+* **Bindings:** JSON-RPC 2.0, gRPC, HTTP+JSON — same eleven operations.
+* **Operations (11):** `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask`,
+  `SubscribeToTask`, `GetExtendedAgentCard`, `CreateTaskPushNotificationConfig`,
+  `GetTaskPushNotificationConfig`, `ListTaskPushNotificationConfigs`, `DeleteTaskPushNotificationConfig`.
+* **Task states (8 + zero value):** interrupted `INPUT_REQUIRED`, `AUTH_REQUIRED`; terminal `COMPLETED`,
+  `FAILED`, `CANCELED`, `REJECTED`; non-terminal `SUBMITTED`, `WORKING`; proto zero value `UNSPECIFIED`.
+  Wire strings are `TASK_STATE_*`. Terminal tasks accept no further messages.
+* **Discovery:** `/.well-known/agent-card.json`. **Signing:** JWS (RFC 7515) over JCS (RFC 8785).
+* **Versioning:** clients send an `A2A-Version` service parameter; unsupported versions are an error.
+* **Not verified here:** the exact transition matrix (the spec text does not appear to define one — do not
+  invent one), error-code table, and card schema; generate from the proto instead.
+
+### 7.2 MCP 2026-07-28 (stable; governed under AAIF)
+* Stateless: no `initialize`/`notifications/initialized`, no protocol session.
+* Every request `_meta`: `io.modelcontextprotocol/protocolVersion` (required), `…/clientCapabilities`
+  (required), `…/clientInfo` (SHOULD). Results SHOULD carry `…/serverInfo`. Missing required `_meta` → `-32602`.
+* Removed: `ping`, `logging/setLevel`, `notifications/roots/list_changed`. Log level is per-request
+  (`…/logLevel`). Experimental tasks moved to the `io.modelcontextprotocol/tasks` extension.
+* Deprecations stay ≥ 12 months. Spec edits go through the SEP process.
+* **Consequence for the ASL spec:** delete §19.6 steps 1–3 and 5 for the current revision; conformance tests
+  MCP-02 (handshake latency) and MCP-05 (ping/pong) apply only to the legacy shim, if one is built.
+
+### 7.3 Open verification items (do before relying on them)
+NanoZK/zkAgent/Jolt Atlas figures; MCPS (IETF draft) and MCPSHIELD coverage claims; SAGE-Agent, VIGIL, FORGE,
+NFV, AgentSPEX, 007, ASHE; EU AI Act Omnibus Official-Journal publication; whether `TASK_STATE_UNSPECIFIED`
+appears as a wire value in v1.0.x (taken from a secondary source).
