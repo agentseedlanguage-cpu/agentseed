@@ -9,6 +9,7 @@ pub mod executor;
 pub mod inference;
 pub mod memory;
 pub mod orchestrator;
+pub mod proof_strength;
 pub mod protocols;
 pub mod rng;
 pub mod sanitize;
