@@ -1,7 +1,13 @@
 //! Datalog policy substrate — v0.3.0 (§22.A, Arc42 ADR-016).
 //!
-//! Embedded incremental Datalog engine using semi-naive bottom-up evaluation.
-//! No external dependency — pure Rust.
+//! Embedded Datalog engine: bottom-up **semi-naive** evaluation with predicate
+//! indexing. The derived (IDB) relation is recomputed lazily when the fact base
+//! changes. True incremental maintenance on retraction (DRed / counting) is *future
+//! work* — earlier docs claimed it and an O(1) bound; neither was ever true.
+//!
+//! Supported: positive Horn rules, recursion, and the *range-restriction* safety
+//! condition (every head variable must occur in the body — enforced by
+//! [`DatalogSubstrate::add_rule`]). Not supported: negation, aggregation, builtins.
 //!
 //! Safety properties expressible as reachability queries over session state
 //! are evaluated here in O(1) amortized after initial closure, rather than
@@ -17,6 +23,7 @@
 //!   effect_denied(agent_id, effect_type, denial_reason, timestamp)
 
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::BTreeSet;
 
 // ── Atom ──────────────────────────────────────────────────────────────────────
 
@@ -239,7 +246,50 @@ impl DatalogSubstrate {
         self.edb.contains(atom) || self.idb.contains(atom)
     }
 
-    // ── Rule evaluation (semi-naive bottom-up) ────────────────────────────────
+    // ── Rules and queries ─────────────────────────────────────────────────────
+
+    /// Register a rule, enforcing range restriction (safety): every variable in the
+    /// head must also occur in the body, otherwise derived facts would contain
+    /// unbound variables.
+    pub fn add_rule(&mut self, rule: Rule) -> Result<(), DatalogError> {
+        if rule.body.is_empty() {
+            return Err(DatalogError::EmptyBody(rule.head.predicate.clone()));
+        }
+        let body_vars: FxHashSet<&str> = rule
+            .body
+            .iter()
+            .flat_map(|a| a.terms.iter())
+            .filter(|t| t.is_var())
+            .map(|t| t.as_str())
+            .collect();
+        for t in rule.head.terms.iter().filter(|t| t.is_var()) {
+            if !body_vars.contains(t.as_str()) {
+                return Err(DatalogError::UnsafeVariable {
+                    predicate: rule.head.predicate.clone(),
+                    variable: t.as_str().to_owned(),
+                });
+            }
+        }
+        self.rules.push(rule);
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Register a named conjunctive query.
+    pub fn add_query(
+        &mut self,
+        name: impl Into<String>,
+        body: Vec<RuleAtom>,
+    ) -> Result<(), DatalogError> {
+        let name = name.into();
+        if body.is_empty() {
+            return Err(DatalogError::EmptyBody(name));
+        }
+        self.queries.insert(name, body);
+        Ok(())
+    }
+
+    // ── Semi-naive evaluation ─────────────────────────────────────────────────
 
     fn ensure_idb(&mut self) {
         if !self.dirty {
@@ -249,58 +299,40 @@ impl DatalogSubstrate {
         self.dirty = false;
     }
 
+    /// Semi-naive fixpoint. Each round, a rule can only produce something new if at
+    /// least one body atom matches a fact derived in the *previous* round (the
+    /// delta); we therefore try every body position as the delta position, joining
+    /// the remaining positions against all known facts.
     fn recompute_idb(&mut self) {
         self.idb.clear();
-        let all_facts: Vec<Atom> = self.edb.iter().cloned().collect();
-        let rules = self.rules.clone();
+        let mut all: FxHashSet<Atom> = self.edb.clone();
+        let mut delta: FxHashSet<Atom> = self.edb.clone();
 
-        // Fixed-point iteration
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for rule in &rules {
-                for new_fact in self.fire_rule(rule, &all_facts) {
-                    if self.idb.insert(new_fact) {
-                        changed = true;
+        while !delta.is_empty() {
+            let all_idx = index_by_predicate(&all);
+            let delta_idx = index_by_predicate(&delta);
+            let mut next: FxHashSet<Atom> = FxHashSet::default();
+            for rule in &self.rules {
+                for head in derive(rule, &delta_idx, &all_idx) {
+                    if !all.contains(&head) {
+                        next.insert(head);
                     }
                 }
             }
-        }
-    }
-
-    fn fire_rule(&self, rule: &Rule, facts: &[Atom]) -> Vec<Atom> {
-        let all: Vec<&Atom> = facts.iter().chain(self.idb.iter()).collect();
-
-        // Start with empty substitution, extend through body atoms
-        let mut subs: Vec<Substitution> = vec![FxHashMap::default()];
-
-        for body_atom in &rule.body {
-            let mut next_subs = Vec::new();
-            for sub in &subs {
-                for fact in &all {
-                    if let Some(new_sub) = match_atom(body_atom, fact, sub) {
-                        next_subs.push(new_sub);
-                    }
-                }
+            for f in &next {
+                all.insert(f.clone());
+                self.idb.insert(f.clone());
             }
-            subs = next_subs;
-            if subs.is_empty() {
-                return vec![];
-            }
+            delta = next;
         }
-
-        // Materialize the head for each valid substitution
-        subs.into_iter()
-            .map(|sub| Atom {
-                predicate: rule.head.predicate.clone(),
-                args: rule.head.terms.iter().map(|t| apply(t, &sub)).collect(),
-            })
-            .collect()
     }
 
     // ── Named query evaluation ────────────────────────────────────────────────
 
-    /// Evaluate a named query, returning matching tuples.
+    /// Evaluate a named query. Rows contain the query's variables in order of first
+    /// appearance (variables starting with `_` are anonymous and omitted); rows are
+    /// de-duplicated and sorted, so the output is deterministic. A query with no
+    /// variables is boolean: one empty row if satisfiable, none otherwise.
     pub fn query(&mut self, name: &str) -> Result<Vec<Vec<String>>, String> {
         self.ensure_idb();
         let body = self
@@ -309,28 +341,42 @@ impl DatalogSubstrate {
             .ok_or_else(|| format!("unknown query: {name}"))?
             .clone();
 
-        let all_facts: Vec<Atom> = self.edb.iter().chain(self.idb.iter()).cloned().collect();
+        let known: FxHashSet<Atom> = self.edb.iter().chain(self.idb.iter()).cloned().collect();
+        let idx = index_by_predicate(&known);
+
+        let mut vars: Vec<String> = Vec::new();
+        for t in body.iter().flat_map(|a| a.terms.iter()) {
+            if let Term::Variable(v) = t {
+                if !v.starts_with('_') && !vars.contains(v) {
+                    vars.push(v.clone());
+                }
+            }
+        }
 
         let mut subs: Vec<Substitution> = vec![FxHashMap::default()];
         for atom in &body {
             let mut next = Vec::new();
-            for sub in &subs {
-                for fact in &all_facts {
-                    if let Some(new_sub) = match_atom(atom, fact, sub) {
-                        next.push(new_sub);
+            if let Some(facts) = idx.get(atom.predicate.as_str()) {
+                for sub in &subs {
+                    for fact in facts {
+                        if let Some(ns) = match_atom(atom, fact, sub) {
+                            next.push(ns);
+                        }
                     }
                 }
             }
             subs = next;
         }
 
-        // Collect variable bindings from the last body atom
-        let result = subs
+        let rows: BTreeSet<Vec<String>> = subs
             .into_iter()
-            .map(|sub| sub.values().cloned().collect())
+            .map(|sub| {
+                vars.iter()
+                    .map(|v| sub.get(v).cloned().unwrap_or_default())
+                    .collect()
+            })
             .collect();
-
-        Ok(result)
+        Ok(rows.into_iter().collect())
     }
 
     // ── Auto-assert VM facts ──────────────────────────────────────────────────
@@ -421,6 +467,62 @@ impl DatalogSubstrate {
     pub fn idb_size(&self) -> usize {
         self.idb.len()
     }
+}
+
+// ── Evaluation helpers ────────────────────────────────────────────────────────
+
+type PredIndex<'a> = FxHashMap<&'a str, Vec<&'a Atom>>;
+
+fn index_by_predicate(facts: &FxHashSet<Atom>) -> PredIndex<'_> {
+    let mut idx: PredIndex<'_> = FxHashMap::default();
+    for f in facts {
+        idx.entry(f.predicate.as_str()).or_default().push(f);
+    }
+    idx
+}
+
+/// All head atoms derivable by `rule` where at least one body atom is matched
+/// against `delta` (every position is tried as the delta position).
+fn derive(rule: &Rule, delta: &PredIndex<'_>, all: &PredIndex<'_>) -> Vec<Atom> {
+    let mut out = Vec::new();
+    for dpos in 0..rule.body.len() {
+        let mut subs: Vec<Substitution> = vec![FxHashMap::default()];
+        for (i, atom) in rule.body.iter().enumerate() {
+            let source = if i == dpos { delta } else { all };
+            let mut next = Vec::new();
+            if let Some(facts) = source.get(atom.predicate.as_str()) {
+                for sub in &subs {
+                    for fact in facts {
+                        if let Some(ns) = match_atom(atom, fact, sub) {
+                            next.push(ns);
+                        }
+                    }
+                }
+            }
+            subs = next;
+            if subs.is_empty() {
+                break;
+            }
+        }
+        for sub in subs {
+            out.push(Atom {
+                predicate: rule.head.predicate.clone(),
+                args: rule.head.terms.iter().map(|t| apply(t, &sub)).collect(),
+            });
+        }
+    }
+    out
+}
+
+/// Errors from rule/query registration.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DatalogError {
+    #[error(
+        "unsafe rule for `{predicate}`: head variable `{variable}` does not occur in the body"
+    )]
+    UnsafeVariable { predicate: String, variable: String },
+    #[error("rule or query `{0}` has an empty body")]
+    EmptyBody(String),
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -556,5 +658,194 @@ mod tests {
         db.assert(fact.clone());
         // Should not create duplicates
         assert_eq!(db.edb_size(), 1);
+    }
+
+    // ── semi-naive correctness ───────────────────────────────────────────────
+
+    fn atom(p: &str, a: &[&str]) -> Atom {
+        Atom::new(p, a.to_vec())
+    }
+    fn ratom(p: &str, ts: Vec<Term>) -> RuleAtom {
+        RuleAtom {
+            predicate: p.to_owned(),
+            terms: ts,
+        }
+    }
+    fn v(n: &str) -> Term {
+        Term::var(n)
+    }
+
+    fn reach_rules(db: &mut DatalogSubstrate) {
+        // reach(X,Y) :- edge(X,Y).   reach(X,Z) :- edge(X,Y), reach(Y,Z).
+        db.add_rule(Rule {
+            head: ratom("reach", vec![v("X"), v("Y")]),
+            body: vec![ratom("edge", vec![v("X"), v("Y")])],
+        })
+        .unwrap();
+        db.add_rule(Rule {
+            head: ratom("reach", vec![v("X"), v("Z")]),
+            body: vec![
+                ratom("edge", vec![v("X"), v("Y")]),
+                ratom("reach", vec![v("Y"), v("Z")]),
+            ],
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn transitive_closure_over_a_chain() {
+        let mut db = DatalogSubstrate::new();
+        reach_rules(&mut db);
+        for i in 0..30 {
+            db.assert(atom("edge", &[&format!("n{i}"), &format!("n{}", i + 1)]));
+        }
+        assert!(db.holds(&atom("reach", &["n0", "n30"])));
+        assert!(db.holds(&atom("reach", &["n7", "n12"])));
+        assert!(
+            !db.holds(&atom("reach", &["n12", "n7"])),
+            "edges are directed"
+        );
+    }
+
+    #[test]
+    fn cycles_terminate() {
+        let mut db = DatalogSubstrate::new();
+        reach_rules(&mut db);
+        db.assert(atom("edge", &["a", "b"]));
+        db.assert(atom("edge", &["b", "c"]));
+        db.assert(atom("edge", &["c", "a"]));
+        for x in ["a", "b", "c"] {
+            for y in ["a", "b", "c"] {
+                assert!(db.holds(&atom("reach", &[x, y])), "{x}->{y}");
+            }
+        }
+    }
+
+    #[test]
+    fn retraction_removes_derived_facts() {
+        let mut db = DatalogSubstrate::new();
+        reach_rules(&mut db);
+        db.assert(atom("edge", &["a", "b"]));
+        db.assert(atom("edge", &["b", "c"]));
+        assert!(db.holds(&atom("reach", &["a", "c"])));
+        db.retract(&atom("edge", &["b", "c"]));
+        assert!(!db.holds(&atom("reach", &["a", "c"])));
+        assert!(db.holds(&atom("reach", &["a", "b"])));
+    }
+
+    /// Reference evaluator: textbook naive fixpoint over the same rules.
+    fn naive_reach(edges: &[(usize, usize)]) -> BTreeSet<(usize, usize)> {
+        let mut r: BTreeSet<(usize, usize)> = edges.iter().copied().collect();
+        loop {
+            let mut add = Vec::new();
+            for &(x, y) in edges {
+                for &(y2, z) in &r {
+                    if y == y2 && !r.contains(&(x, z)) {
+                        add.push((x, z));
+                    }
+                }
+            }
+            if add.is_empty() {
+                return r;
+            }
+            r.extend(add);
+        }
+    }
+
+    #[test]
+    fn semi_naive_matches_naive_on_pseudo_random_graphs() {
+        let mut state: u64 = 0x2545F4914F6CDD1D;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for _ in 0..40 {
+            let n = 3 + (next() % 7) as usize;
+            let m = (next() % 14) as usize;
+            let edges: Vec<(usize, usize)> = (0..m)
+                .map(|_| ((next() % n as u64) as usize, (next() % n as u64) as usize))
+                .collect();
+
+            let mut db = DatalogSubstrate::new();
+            reach_rules(&mut db);
+            for &(a, b) in &edges {
+                db.assert(atom("edge", &[&format!("n{a}"), &format!("n{b}")]));
+            }
+            let expected = naive_reach(&edges);
+            for x in 0..n {
+                for y in 0..n {
+                    let got = db.holds(&atom("reach", &[&format!("n{x}"), &format!("n{y}")]));
+                    assert_eq!(got, expected.contains(&(x, y)), "edges={edges:?} {x}->{y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unsafe_rule_is_rejected() {
+        let mut db = DatalogSubstrate::new();
+        let r = db.add_rule(Rule {
+            head: ratom("bad", vec![v("X"), v("Unbound")]),
+            body: vec![ratom("edge", vec![v("X"), v("Y")])],
+        });
+        assert_eq!(
+            r,
+            Err(DatalogError::UnsafeVariable {
+                predicate: "bad".into(),
+                variable: "Unbound".into()
+            })
+        );
+    }
+
+    #[test]
+    fn empty_body_is_rejected() {
+        let mut db = DatalogSubstrate::new();
+        assert!(matches!(
+            db.add_rule(Rule {
+                head: ratom("p", vec![Term::constant("a")]),
+                body: vec![]
+            }),
+            Err(DatalogError::EmptyBody(_))
+        ));
+    }
+
+    #[test]
+    fn query_rows_are_deterministic_sorted_and_deduplicated() {
+        let mut db = DatalogSubstrate::new();
+        reach_rules(&mut db);
+        db.add_query(
+            "from_a",
+            vec![ratom("reach", vec![Term::constant("a"), v("T")])],
+        )
+        .unwrap();
+        for (x, y) in [("a", "c"), ("a", "b"), ("b", "c")] {
+            db.assert(atom("edge", &[x, y]));
+        }
+        let rows = db.query("from_a").unwrap();
+        assert_eq!(rows, vec![vec!["b".to_string()], vec!["c".to_string()]]);
+        assert_eq!(rows, db.query("from_a").unwrap(), "stable across calls");
+    }
+
+    #[test]
+    fn boolean_query_without_variables() {
+        let mut db = DatalogSubstrate::new();
+        db.add_query(
+            "has_edge",
+            vec![ratom(
+                "edge",
+                vec![Term::constant("a"), Term::constant("b")],
+            )],
+        )
+        .unwrap();
+        assert!(db.query("has_edge").unwrap().is_empty());
+        db.assert(atom("edge", &["a", "b"]));
+        assert_eq!(db.query("has_edge").unwrap(), vec![Vec::<String>::new()]);
+    }
+
+    #[test]
+    fn unknown_query_errors() {
+        assert!(DatalogSubstrate::new().query("nope").is_err());
     }
 }
