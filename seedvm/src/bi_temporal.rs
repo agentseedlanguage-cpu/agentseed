@@ -4,6 +4,8 @@
 //!   valid_time      — when was this fact true in the world?
 //!   transaction_time — when was it recorded in the system?
 //!
+//! Periods are half-open `[from, until)`; `until = None` means open-ended.
+//!
 //! Design principles:
 //!   1. Transaction records are immutable. Corrections create new records.
 //!   2. Valid time is agent-asserted.
@@ -42,14 +44,16 @@ pub struct BiTemporalRecord {
 }
 
 impl BiTemporalRecord {
-    /// True if this record is valid at world-time `vt` AND
-    /// was current at system-time `tt`.
+    /// True if this record is valid at world-time `vt` AND was the current
+    /// belief at system-time `tt`.
+    ///
+    /// Both periods are **half-open** `[from, until)` (SQL:2011 period semantics),
+    /// so adjacent versions never both claim their shared boundary instant and a
+    /// correction takes effect exactly at its transaction time.
     pub fn covers(&self, vt: Timestamp, tt: Timestamp) -> bool {
-        // Valid-time check
-        let vt_ok = self.valid_from <= vt && self.valid_until.map_or(true, |vu| vt <= vu);
-        // Transaction-time check
+        let vt_ok = self.valid_from <= vt && self.valid_until.map_or(true, |vu| vt < vu);
         let tt_ok =
-            self.transaction_from <= tt && self.transaction_until.map_or(true, |tu| tt <= tu);
+            self.transaction_from <= tt && self.transaction_until.map_or(true, |tu| tt < tu);
         vt_ok && tt_ok
     }
 }
@@ -191,12 +195,11 @@ impl BiTemporalIndex {
             .filter(|rec| {
                 // Valid range filter
                 let vt_ok = valid_range.map_or(true, |(from, to)| {
-                    rec.valid_from <= to && rec.valid_until.map_or(true, |vu| vu >= from)
+                    rec.valid_from <= to && rec.valid_until.map_or(true, |vu| vu > from)
                 });
                 // Transaction range filter
                 let tt_ok = transaction_range.map_or(true, |(from, to)| {
-                    rec.transaction_from <= to
-                        && rec.transaction_until.map_or(true, |tu| tu >= from)
+                    rec.transaction_from <= to && rec.transaction_until.map_or(true, |tu| tu > from)
                 });
                 vt_ok && tt_ok
             })
@@ -370,5 +373,71 @@ mod tests {
         assert!(idx.as_of("nonexistent", 0, 0).is_none());
         assert!(idx.history("nonexistent", None, None).is_empty());
         assert!(idx.current("nonexistent").is_none());
+    }
+
+    // ── half-open interval semantics: [from, until) ──────────────────────────
+
+    #[test]
+    fn adjacent_valid_periods_do_not_overlap_at_the_boundary() {
+        let mut idx = BiTemporalIndex::new();
+        // v1 true on [0, 100); v2 true from 100 onward. Both recorded at tt=10.
+        idx.store("rate", serde_json::json!("v1"), 0, Some(100), "ag", 1, 10);
+        idx.store("rate", serde_json::json!("v2"), 100, None, "ag", 2, 10);
+        assert_eq!(
+            idx.as_of("rate", 99, 20).unwrap().value,
+            serde_json::json!("v1")
+        );
+        assert_eq!(
+            idx.as_of("rate", 100, 20).unwrap().value,
+            serde_json::json!("v2")
+        );
+        assert_eq!(
+            idx.as_of("rate", 101, 20).unwrap().value,
+            serde_json::json!("v2")
+        );
+    }
+
+    #[test]
+    fn correction_takes_effect_exactly_at_its_transaction_time() {
+        let mut idx = BiTemporalIndex::new();
+        idx.store("k", serde_json::json!("old"), 0, None, "ag", 1, 100);
+        idx.correct("k", serde_json::json!("new"), 0, "ag", 2, "fix", 200)
+            .unwrap();
+        assert_eq!(
+            idx.as_of("k", 0, 199).unwrap().value,
+            serde_json::json!("old")
+        );
+        assert_eq!(
+            idx.as_of("k", 0, 200).unwrap().value,
+            serde_json::json!("new")
+        );
+    }
+
+    #[test]
+    fn exactly_one_record_covers_any_instant_for_a_correction_chain() {
+        let mut idx = BiTemporalIndex::new();
+        idx.store("k", serde_json::json!(0), 0, None, "ag", 1, 10);
+        for (i, t) in [20u64, 30, 40].into_iter().enumerate() {
+            idx.correct("k", serde_json::json!(i + 1), 0, "ag", 2, "c", t)
+                .unwrap();
+        }
+        for tt in 10..60u64 {
+            let covering = idx
+                .history("k", None, None)
+                .into_iter()
+                .filter(|r| r.covers(5, tt))
+                .count();
+            assert_eq!(covering, 1, "tt={tt}");
+        }
+    }
+
+    #[test]
+    fn history_range_excludes_a_period_that_ends_exactly_at_range_start() {
+        let mut idx = BiTemporalIndex::new();
+        idx.store("k", serde_json::json!("a"), 0, Some(100), "ag", 1, 10);
+        idx.store("k", serde_json::json!("b"), 100, None, "ag", 2, 10);
+        let h = idx.history("k", Some((100, 200)), None);
+        assert_eq!(h.len(), 1);
+        assert_eq!(h[0].value, serde_json::json!("b"));
     }
 }
