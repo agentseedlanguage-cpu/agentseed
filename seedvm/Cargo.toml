@@ -21,6 +21,7 @@ bincode = { workspace = true }
 rand = { workspace = true }
 rand_pcg = { workspace = true }
 blake3 = { workspace = true }
+ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
