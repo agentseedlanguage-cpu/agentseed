@@ -18,7 +18,7 @@ and records what is verified, what is not, and what the repository actually cont
 | EU AI Act "enforceable August 2026" (Art. 12 driver) | Council/Parliament/law-firm summaries | **OUTDATED** | Digital Omnibus political agreement 7 May 2026; Parliament plenary 16 Jun 2026: Annex III high-risk → **2 Dec 2027**, Annex I embedded → **2 Aug 2028**. Art. 50 transparency largely unchanged. *Final OJ publication not confirmed by the sources retrieved — verify.* |
 | A2A v1.0.0: 11 operations, 9 task states incl. `EXPIRED`, card at `/.well-known/agent.json`, ops `Authenticate/GetExtensions/ExecuteExtension` (spec §18) | Official A2A v1.0.0 reference, a2a-protocol.org (read 2026-10-31) | **FALSE in the spec** | 8 states (+proto zero value); no `EXPIRED`/`PENDING`/`PAUSED`. Card path is `/.well-known/agent-card.json`. The 11 real operations are listed in §7. `Authenticate`, `GetExtensions`, `ExecuteExtension`, `GetAgentCard` are not A2A v1.0.0 operations. |
 | MCP "2025-11-25" with `initialize` handshake, `ping`, sessions (spec §19.6, tests MCP-02/05) | Official MCP changelog + `2026-07-28` release tag | **OUTDATED** | Current stable revision is **2026-07-28** (final 28 Jul 2026): stateless, no handshake/sessions, per-request `_meta`; `ping`, `logging/setLevel`, `notifications/roots/list_changed` removed. `2025-11-25` is the *legacy* era. |
-| NanoZK "5.5 KB proof, 24 ms verify, ε<1e-37", zkAgent, Jolt Atlas | v0.2 addendum text | **UNVERIFIED** | Not re-checked. Treat as unconfirmed vendor/paper claims; do not cite as facts in the spec. |
+| NanoZK "5.5 KB proof, 24 ms verify, ε<1e-37" used as a *tier latency* (spec §P-CALC) | Wang et al., USC, arXiv:2603.18046 (ICICS 2026) (abstract + summaries) | **VERIFIED, MISUSED** | The 5.5 KB / ~24 ms figures are a **per-layer** proof size and **verification** time at d=128 (~83 KB for a 12-layer model). *Proving* took ~43 s per GPT-2-scale block; attention reached minutes at larger width; no result beyond GPT-2 scale. The spec presented 24 ms as the cost of using the tier. See §2.8. |
 | VIGIL, FORGE, NFV (2608.21516), SAGE-Agent, AgentSPEX, 007, ASHE, Codifide | earlier research report | **UNVERIFIED (snippet-level)** | Keep as "related work to review", not as normative grounding. |
 | "No competitor has X" (uncertainty intervals, dream cycle, etc.) | earlier report | **UNVERIFIED / likely too strong** | Rephrase as "not found in the systems reviewed" with the list of systems reviewed. |
 
@@ -88,6 +88,25 @@ ASL provides *mechanisms that support* record-keeping (bi-temporal store, signed
 claim legal compliance: whether a deployed agent is "high-risk" depends on its use case. Use the
 dates in §1. Re-verify the Official Journal status of the Omnibus before release notes cite them.
 
+### 2.8 Proof assurance model (replaces ADR-006 and the §P-CALC tier table) — MUST
+`proof != None` as a *mandatory* S1+ rule is unsatisfiable by an agent calling a hosted frontier model
+(§1, NanoZK row). It is replaced by **assurance properties**:
+`MODEL_IDENTITY, INPUT_BINDING, PROVIDER_INDEPENDENT, HARDWARE_INDEPENDENT, PUBLIC_VERIFIABLE`.
+A proof *mechanism* provides a subset when it verifies; mechanisms are **not** a linear ladder
+(replay has HARDWARE_INDEPENDENT but not PUBLIC_VERIFIABLE; TEE the reverse):
+
+| mechanism | provides | does not provide |
+|---|---|---|
+| ProviderReceipt | model identity, input binding (as claimed by provider) | provider independence |
+| DeterministicReplay | all but PUBLIC_VERIFIABLE (needs local model + deterministic decode) | public verification |
+| TeeAttestation | all but HARDWARE_INDEPENDENT | trust-free of the hardware vendor |
+| ZeroKnowledge | all five | feasibility at frontier scale (today: GPT-2-scale only) |
+
+The discharge gate checks `claim.verified && claim.assurance ⊇ policy.required`. Default requirement is
+`MODEL_IDENTITY|INPUT_BINDING`. `infer<T>` at S1+ MUST *declare* a requirement (default above); it need not
+carry a ZK proof. The assignments in the table are a **design judgement**, not a claim from any paper.
+*Implemented and tested in `seedvm/src/proof_strength.rs`.*
+
 ---
 ## 3. Gap-fills adopted from verified sources (proposals)
 
@@ -134,7 +153,29 @@ Findings, all reproducible; fixes marked ✅ are in this patch.
 12. ✅ **`protocols/mcp.rs` had no version or `_meta` handling.** Added the verified 2026-07-28 request-metadata
     contract (required keys, `-32602`, era classification). The server itself is still an in-memory registry.
 
-Test counts (this branch): seedc 20 · seedvm 75 · seedc-cli bin 7 → **102**, from a baseline of 17
+13. ✅ **Datalog engine claimed "incremental semi-naive … O(1)"; it was naive re-evaluation** and `query()` returned
+    rows in HashMap order. Now genuine semi-naive with predicate indexing, range-restriction (safety) checks on
+    rules, deterministic sorted queries, and a randomized cross-check against a reference naive evaluator.
+    Retraction recomputes (DRed-style incremental maintenance is future work); the O(1) claim is withdrawn.
+14. ✅ **Bi-temporal periods were closed intervals**, so adjacent versions both covered their shared boundary and a
+    correction chain had two covering records at one instant. Now half-open `[from, until)` (SQL:2011).
+15. ✅ **`capability.rs` did not deliver P3** (found by reading it against §22): `attenuate` could *escalate*
+    (any resource, any permissions); revocation did not cascade; `check()` ignored the token holder; tokens were
+    never signed or verified; `Delegate` was never consulted. Fixed: Ed25519-signed tokens verified against
+    registered issuer keys; delegation re-validated at `issue` (parent exists/valid, issued by parent's subject,
+    `Delegate`, permission subset, resource *subsumption*, no outliving the parent, chain consistency);
+    cascade via delegation chain; per-subject checks. 28 tests; four security mutants each caught.
+    Known limit: patterns are raw strings and `*` matches `/` — callers must normalise paths first.
+16. ✅ **`sanitize.rs` / `taint.rs` laundered taint**: `Validate(regex)` ignored its regex and always lowered taint;
+    one registered `trusted` policy cleaned *every* value; `ReduceLevel` could raise taint or reach Clean with
+    categories left; `check_sink` only recorded (never blocked); `pc_taint` was never set (no implicit flows);
+    no rule for untrusted data reaching a capability-exercising effect. Fixed with sound reduction rules on
+    `TaintMeta`, name-selected policies, explicit validation outcomes, enforcing/strict sink checks, a pc stack,
+    and `untrusted → Effect` rules. 30 tests; four mutants each caught.
+17. ☐ Still untested and unaudited: `uncertainty.rs`, `tee.rs`, `inference.rs`, `orchestrator.rs`. The doc
+    comments in `taint.rs` cite "pyrograph", "Tant (Bertolo 2026)" and "zeptoclaw" — **unverified**.
+
+Test counts (this branch): seedc 20 · seedvm 154 · seedc-cli bin 7 → **181**, from a baseline of 17
 (one of which hung). `protocols/*` previously had **0** tests; `a2a.rs` now has 11 and `mcp.rs` 7.
 
 ---
@@ -159,6 +200,12 @@ Test counts (this branch): seedc 20 · seedvm 75 · seedc-cli bin 7 → **102**,
   rather than hand-writing them; gate releases on the official A2A TCK (a2aproject/a2a-tck).
 * **ADR-022 (new)** *MCP is stateless (2026-07-28):* no session state in the server for the current
   revision; legacy (`<= 2025-11-25`) sessions, if supported at all, live behind an explicit compat shim.
+* **ADR-023 (new)** *Assurance properties, not a proof ladder* (§2.8). Supersedes ADR-006.
+* **ADR-024 (new)** *Enforcement is explicit and fail-closed:* a check that can refuse MUST return a `Result`
+  the caller cannot ignore; recording-only APIs are named as such. Untracked data at a sink is an error in strict mode.
+* **ADR-025 (new)** *Half-open periods `[from, until)`* for all validity and transaction intervals.
+* **ADR-026 (new)** *Signed, verified capability tokens; delegation re-validated at issuance* — never trust a
+  token's claimed lineage, re-derive that it narrows its parent.
 * **ADR-020 (proposed)** *IR execution model:* stack-IR vs SSA — decide and document.
 
 ## 6. Next milestones (acceptance criteria)
@@ -171,7 +218,11 @@ Test counts (this branch): seedc 20 · seedvm 75 · seedc-cli bin 7 → **102**,
 5. **Protocol bindings:** generate A2A types from `a2a.proto`; implement `GetExtendedAgentCard`, streaming and
    push-notification configs; signed Agent Cards (JWS over JCS RFC 8785); `A2A-Version` negotiation; run the
    official TCK. MCP: tools/resources/prompts over the stateless contract, `serverInfo` in result `_meta`.
-6. CI: dead-module guard (ADR-017), `cargo test --workspace --lib --tests`, clippy denied warnings.
+6. **Audit + test the remaining dormant modules** (`uncertainty`, `tee`, `inference`, `orchestrator`) the way
+   `capability`/`taint` were: read against the spec, write attack/regression tests, mutation-check them.
+7. **Wire the new primitives into the executor/discharge path** (assurance check, enforced sinks, signed tokens);
+   today they are libraries with no call sites.
+8. CI: dead-module guard (ADR-017), `cargo test --workspace --lib --tests`, clippy denied warnings.
 
 ---
 ## 7. Protocol bindings — verified facts (replaces spec §18 and §19 where they conflict)
@@ -200,6 +251,6 @@ Test counts (this branch): seedc 20 · seedvm 75 · seedc-cli bin 7 → **102**,
   MCP-02 (handshake latency) and MCP-05 (ping/pong) apply only to the legacy shim, if one is built.
 
 ### 7.3 Open verification items (do before relying on them)
-NanoZK/zkAgent/Jolt Atlas figures; MCPS (IETF draft) and MCPSHIELD coverage claims; SAGE-Agent, VIGIL, FORGE,
+zkAgent and Jolt Atlas figures; MCPS (IETF draft) and MCPSHIELD coverage claims; SAGE-Agent, VIGIL, FORGE,
 NFV, AgentSPEX, 007, ASHE; EU AI Act Omnibus Official-Journal publication; whether `TASK_STATE_UNSPECIFIED`
 appears as a wire value in v1.0.x (taken from a secondary source).
