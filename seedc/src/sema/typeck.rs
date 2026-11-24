@@ -87,11 +87,11 @@ impl Inferencer {
 
         match (&t1, &t2) {
             (Ty::Unknown, _) | (_, Ty::Unknown) => Ok(()),
-            (Ty::Var(v), other) if !self.occurs(*v, other) => {
+            (Ty::Var(v), other) if !Self::occurs(*v, other) => {
                 self.substitution.insert(*v, other.clone());
                 Ok(())
             }
-            (other, Ty::Var(v)) if !self.occurs(*v, other) => {
+            (other, Ty::Var(v)) if !Self::occurs(*v, other) => {
                 self.substitution.insert(*v, other.clone());
                 Ok(())
             }
@@ -122,25 +122,23 @@ impl Inferencer {
             }
             // ── FIXED: added field name `span:` ──
             _ => Err(TypeError::Mismatch {
-                expected: format!("{}", t1),
-                found: format!("{}", t2),
+                expected: format!("{t1}"),
+                found: format!("{t2}"),
                 span: ast::SourceSpan::new(0.into(), 0),
                 found_span: None,
             }),
         }
     }
 
-    // `&self` is kept for API symmetry with the other unifier helpers.
-    #[allow(clippy::only_used_in_recursion)]
-    fn occurs(&self, var: usize, ty: &Ty) -> bool {
+    fn occurs(var: usize, ty: &Ty) -> bool {
         match ty {
             Ty::Var(v) => *v == var,
             Ty::Fn(args, ret, _) => {
-                args.iter().any(|a| self.occurs(var, a)) || self.occurs(var, ret)
+                args.iter().any(|a| Self::occurs(var, a)) || Self::occurs(var, ret)
             }
-            Ty::Array(t, _) | Ty::Ref(_, t) | Ty::Affine(t) => self.occurs(var, t),
-            Ty::Tuple(ts) => ts.iter().any(|t| self.occurs(var, t)),
-            Ty::Nominal(_, args) => args.iter().any(|a| self.occurs(var, a)),
+            Ty::Array(t, _) | Ty::Ref(_, t) | Ty::Affine(t) => Self::occurs(var, t),
+            Ty::Tuple(ts) => ts.iter().any(|t| Self::occurs(var, t)),
+            Ty::Nominal(_, args) => args.iter().any(|a| Self::occurs(var, a)),
             _ => false,
         }
     }
@@ -196,33 +194,34 @@ impl Inferencer {
                 for v in vars {
                     subst.insert(*v, self.fresh_var());
                 }
-                self.instantiate_with(&subst, body)
+                Self::instantiate_with(&subst, body)
             }
             other => other.clone(),
         }
     }
 
-    #[allow(clippy::only_used_in_recursion)]
-    fn instantiate_with(&self, subst: &HashMap<usize, Ty>, ty: &Ty) -> Ty {
+    fn instantiate_with(subst: &HashMap<usize, Ty>, ty: &Ty) -> Ty {
         match ty {
             Ty::Var(v) => subst.get(v).cloned().unwrap_or(ty.clone()),
             Ty::Fn(args, ret, eff) => Ty::Fn(
                 args.iter()
-                    .map(|a| self.instantiate_with(subst, a))
+                    .map(|a| Self::instantiate_with(subst, a))
                     .collect(),
-                Box::new(self.instantiate_with(subst, ret)),
+                Box::new(Self::instantiate_with(subst, ret)),
                 eff.clone(),
             ),
-            Ty::Array(t, n) => Ty::Array(Box::new(self.instantiate_with(subst, t)), *n),
-            Ty::Tuple(ts) => {
-                Ty::Tuple(ts.iter().map(|t| self.instantiate_with(subst, t)).collect())
-            }
-            Ty::Ref(m, t) => Ty::Ref(*m, Box::new(self.instantiate_with(subst, t))),
-            Ty::Affine(t) => Ty::Affine(Box::new(self.instantiate_with(subst, t))),
+            Ty::Array(t, n) => Ty::Array(Box::new(Self::instantiate_with(subst, t)), *n),
+            Ty::Tuple(ts) => Ty::Tuple(
+                ts.iter()
+                    .map(|t| Self::instantiate_with(subst, t))
+                    .collect(),
+            ),
+            Ty::Ref(m, t) => Ty::Ref(*m, Box::new(Self::instantiate_with(subst, t))),
+            Ty::Affine(t) => Ty::Affine(Box::new(Self::instantiate_with(subst, t))),
             Ty::Nominal(n, args) => Ty::Nominal(
                 n.clone(),
                 args.iter()
-                    .map(|a| self.instantiate_with(subst, a))
+                    .map(|a| Self::instantiate_with(subst, a))
                     .collect(),
             ),
             Ty::Scheme(vars, t) => {
@@ -230,7 +229,7 @@ impl Inferencer {
                 for v in vars {
                     subst.remove(v);
                 }
-                Ty::Scheme(vars.clone(), Box::new(self.instantiate_with(&subst, t)))
+                Ty::Scheme(vars.clone(), Box::new(Self::instantiate_with(&subst, t)))
             }
             other => other.clone(),
         }
@@ -356,7 +355,7 @@ impl Inferencer {
                 Ok((self.apply_subst(&then_ty), eff))
             }
 
-            ast::ExprKind::Perform(op, args) => {
+            ast::ExprKind::Perform(op, args, _) => {
                 let mut eff = EffectSet::pure();
                 for a in args {
                     let (_, e) = self.infer_expr(a)?;

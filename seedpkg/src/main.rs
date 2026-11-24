@@ -9,7 +9,7 @@
 //!   - semver crate — Cargo-compatible semantic versioning
 
 use clap::{Parser, Subcommand};
-use miette::{IntoDiagnostic, WrapErr};
+use miette::IntoDiagnostic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -202,7 +202,7 @@ impl RegistryClient {
         let url = format!("{}/api/v1/packages/publish", self.base_url);
         let mut req = self.client.put(&url);
         if let Some(token) = &self.token {
-            req = req.header("Authorization", format!("Bearer {}", token));
+            req = req.header("Authorization", format!("Bearer {token}"));
         }
         req.json(package).send().await.map_err(|e| e.to_string())?;
         Ok(())
@@ -231,11 +231,18 @@ struct PackageUpload {
 }
 
 // ── Dependency resolver ──
+//
+// Flat (non-transitive) resolver: asks the registry for each direct
+// dependency, verifies the answer satisfies the requirement, and emits
+// lock entries sorted by name so lockfiles are reproducible.
+// Wired into `install` in Phase I3; transitive resolution is future work.
 
+#[allow(dead_code)]
 struct DependencyResolver {
     registry: RegistryClient,
 }
 
+#[allow(dead_code)]
 impl DependencyResolver {
     fn new(registry: RegistryClient) -> Self {
         Self { registry }
@@ -245,24 +252,31 @@ impl DependencyResolver {
         &self,
         dependencies: &HashMap<String, String>,
     ) -> Result<Vec<LockedPackage>, String> {
-        let mut resolved = Vec::new();
-        let mut seen = HashMap::new();
-        for (name, req_str) in dependencies {
+        let mut names: Vec<&String> = dependencies.keys().collect();
+        names.sort();
+        let mut resolved = Vec::with_capacity(names.len());
+        for name in names {
+            let req_str = &dependencies[name];
             let req: semver::VersionReq = req_str
                 .parse()
-                .map_err(|e| format!("invalid version requirement '{}': {}", req_str, e))?;
-            let info: PackageInfo = serde_json::from_str("{}").unwrap();
-            let version: semver::Version = "1.0.0".parse().unwrap();
-            if req.matches(&version) {
-                resolved.push(LockedPackage {
-                    name: name.clone(),
-                    version: version.to_string(),
-                    source: "registry.agentseed.org".into(),
-                    checksum: String::new(),
-                    dependencies: vec![],
-                });
-                seen.insert(name.clone(), version);
+                .map_err(|e| format!("invalid version requirement '{req_str}': {e}"))?;
+            let info = self.registry.get_package(name, req_str).await?;
+            let version: semver::Version = info
+                .version
+                .parse()
+                .map_err(|e| format!("registry returned bad version '{}': {e}", info.version))?;
+            if !req.matches(&version) {
+                return Err(format!(
+                    "registry returned {name}@{version}, which does not satisfy '{req_str}'"
+                ));
             }
+            resolved.push(LockedPackage {
+                name: name.clone(),
+                version: version.to_string(),
+                source: "registry.agentseed.org".into(),
+                checksum: info.sha256.unwrap_or_default(),
+                dependencies: vec![],
+            });
         }
         Ok(resolved)
     }
@@ -281,6 +295,7 @@ fn save_manifest(path: &Path, manifest: &SeedManifest) -> miette::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn save_lockfile(path: &Path, lock: &LockFile) -> miette::Result<()> {
     let content = toml::to_string_pretty(lock).into_diagnostic()?;
     std::fs::write(path.join("Seed.lock"), content).into_diagnostic()?;
@@ -331,7 +346,9 @@ async fn cmd_install(args: InstallArgs) -> miette::Result<()> {
     tracing::info!("Resolved {}@{}", info.name, info.version);
 
     if !args.dry_run {
-        let install_dir = dirs_home().join(".agentseed/packages");
+        let install_dir = dirs_home()
+            .ok_or_else(|| miette::miette!("Cannot find home directory"))?
+            .join(".agentseed/packages");
         std::fs::create_dir_all(&install_dir).into_diagnostic()?;
         tracing::info!(
             "Package {} installed to {}",
@@ -464,5 +481,7 @@ fn cmd_logout() -> miette::Result<()> {
 }
 
 fn dirs_home() -> Option<PathBuf> {
-    dirs_next::home_dir().or_else(|| std::env::var("HOME").ok().map(PathBuf::from))
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
 }

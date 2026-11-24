@@ -38,42 +38,42 @@ pub enum Ty {
 impl std::fmt::Display for Ty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Ty::Var(i) => write!(f, "?{}", i),
-            Ty::Prim(p) => write!(f, "{}", p),
+            Ty::Var(i) => write!(f, "?{i}"),
+            Ty::Prim(p) => write!(f, "{p}"),
             Ty::Fn(args, ret, eff) => {
                 write!(f, "fn(")?;
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", a)?;
+                    write!(f, "{a}")?;
                 }
-                write!(f, ") -> {}", ret)?;
+                write!(f, ") -> {ret}")?;
                 if let Some(e) = eff {
-                    write!(f, " !{}", e)?;
+                    write!(f, " !{e}")?;
                 }
                 Ok(())
             }
-            Ty::Array(t, n) => write!(f, "[{}; {}]", t, n),
+            Ty::Array(t, n) => write!(f, "[{t}; {n}]"),
             Ty::Tuple(ts) => {
                 write!(f, "(")?;
                 for (i, t) in ts.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", t)?;
+                    write!(f, "{t}")?;
                 }
                 write!(f, ")")
             }
             Ty::Nominal(n, args) => {
-                write!(f, "{}", n)?;
+                write!(f, "{n}")?;
                 if !args.is_empty() {
                     write!(f, "<")?;
                     for (i, a) in args.iter().enumerate() {
                         if i > 0 {
                             write!(f, ", ")?;
                         }
-                        write!(f, "{}", a)?;
+                        write!(f, "{a}")?;
                     }
                     write!(f, ">")?;
                 }
@@ -86,13 +86,13 @@ impl std::fmt::Display for Ty {
                     if i > 0 {
                         write!(f, " ")?;
                     }
-                    write!(f, "?{}", v)?;
+                    write!(f, "?{v}")?;
                 }
-                write!(f, ". {}", t)
+                write!(f, ". {t}")
             }
-            Ty::Agent(n) => write!(f, "agent<{}>", n),
-            Ty::Section(n) => write!(f, "section<{}>", n),
-            Ty::Affine(t) => write!(f, "affine<{}>", t),
+            Ty::Agent(n) => write!(f, "agent<{n}>"),
+            Ty::Section(n) => write!(f, "section<{n}>"),
+            Ty::Affine(t) => write!(f, "affine<{t}>"),
             Ty::Unknown => write!(f, "?"),
         }
     }
@@ -177,7 +177,7 @@ impl std::fmt::Display for EffectSet {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{:?}", e)?;
+            write!(f, "{e:?}")?;
         }
         write!(f, "}}")
     }

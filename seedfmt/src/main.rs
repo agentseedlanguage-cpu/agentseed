@@ -57,6 +57,7 @@ fn main() -> miette::Result<()> {
 
     if let Some(path) = cli.output {
         std::fs::write(&path, &formatted)
+            .into_diagnostic()
             .wrap_err_with(|| format!("failed to write to `{}`", path.display()))?;
     } else if cli.source == "-" {
         io::stdout()
@@ -64,6 +65,7 @@ fn main() -> miette::Result<()> {
             .into_diagnostic()?;
     } else {
         std::fs::write(&cli.source, &formatted)
+            .into_diagnostic()
             .wrap_err_with(|| format!("failed to write to `{}`", cli.source))?;
     }
 
@@ -84,9 +86,9 @@ fn read_source(path: &str) -> miette::Result<String> {
 /// Core formatting logic — normalises indentation, trailing whitespace,
 /// and brace positioning for `.seed` source.
 ///
-/// Full implementation uses rowan to build a lossless CST, applies
-/// formatting rules (indent, line width, brace style), then reconstructs
-/// the formatted source from the tree.
+/// Current implementation is line-based (indent by bracket depth). A
+/// CST-based, lossless formatter is planned (Phase F8); until then braces
+/// inside strings/comments can skew indentation.
 fn format_source(source: &str, cli: &Cli) -> miette::Result<String> {
     let indent = if cli.tabs { "\t" } else { " " }.repeat(cli.indent_width);
     let mut depth: usize = 0;
@@ -134,9 +136,10 @@ mod tests {
         };
         let input = "agent hello {\n    fn greet() {\n  let x = 1;\n    }\n}";
         let output = format_source(input, &cli).unwrap();
-        assert!(output.contains("agent hello {"));
-        assert!(!output.contains("  let")); // wrong indent removed
-        assert!(!output.contains("    let")); // wrong indent removed
+        assert_eq!(
+            output,
+            "agent hello {\n    fn greet() {\n        let x = 1;\n    }\n}\n"
+        );
     }
 
     #[test]

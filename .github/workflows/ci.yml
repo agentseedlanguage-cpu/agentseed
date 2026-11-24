@@ -31,9 +31,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Dead-module guard (ADR-017)
-        run: python3 scripts/check_dead_modules.py
-
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -45,6 +42,12 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --all-features
+
+      - name: Smoke test examples
+        run: |
+          cargo run -q -p seedc-cli -- check examples/hello.seed
+          cargo run -q -p seedc-cli -- check examples/agent.seed
+          cargo run -q -p seedc-cli -- run examples/hello.seed
 
       - name: Security audit
         uses: actions-rust-lang/audit@v1

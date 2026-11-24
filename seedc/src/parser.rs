@@ -24,7 +24,7 @@ struct Parser<'a> {
     pos: usize,
 }
 
-impl Parser<'_> {
+impl<'a> Parser<'a> {
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
     }
@@ -49,6 +49,7 @@ impl Parser<'_> {
                 kind: TokenKind::Eof,
                 text: String::new(),
                 span: SourceSpan::new(0.into(), 0),
+                nl_before: false,
             });
             Err(ParseError {
                 expected: vec![kind],
@@ -89,11 +90,15 @@ impl Parser<'_> {
     fn parse_program(&mut self) -> Result<Program, ParseError> {
         let start = self.pos;
         let mut items = Vec::new();
+        let mut first_error: Option<ParseError> = None;
         while !self.at(TokenKind::Eof) {
+            let before = self.pos;
             match self.parse_top_level_item() {
                 Ok(item) => items.push(item),
                 Err(e) => {
-                    eprintln!("{}", e);
+                    // Remember the first error; keep scanning so later items
+                    // are still visited, but never report success.
+                    first_error.get_or_insert(e);
                     self.skip_to(&[
                         TokenKind::KwAgent,
                         TokenKind::KwFn,
@@ -108,11 +113,18 @@ impl Parser<'_> {
                         TokenKind::KwExtern,
                         TokenKind::KwEffect,
                         TokenKind::KwHandler,
-                        TokenKind::RBrace,
                         TokenKind::Eof,
                     ]);
+                    // Guarantee forward progress (a stray token that is also a
+                    // recovery point would otherwise loop forever).
+                    if self.pos == before {
+                        self.advance();
+                    }
                 }
             }
+        }
+        if let Some(e) = first_error {
+            return Err(e);
         }
         Ok(Program {
             items,
@@ -223,15 +235,189 @@ impl Parser<'_> {
         let name = self.parse_ident()?;
         self.expect(TokenKind::LBrace)?;
         let mut sections = Vec::new();
+        let mut blocks = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
-            sections.push(self.parse_section()?);
+            if self.at(TokenKind::SectionMarker) {
+                blocks.push(self.parse_seed_block()?);
+            } else {
+                sections.push(self.parse_section()?);
+            }
         }
         self.expect(TokenKind::RBrace)?;
         Ok(SeedDecl {
             name,
             sections,
+            blocks,
             span: self.span_from(start),
         })
+    }
+
+    /// Parse `{ confidence: 0.85, taint: 0.2, budget: remaining }`.
+    fn parse_threshold_list(&mut self) -> Result<Threshold, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut thr = Threshold::default();
+        while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+            let key = self.parse_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let val = self.advance().clone();
+            let num = val.text.replace('_', "").parse::<f64>().ok();
+            match key.name.as_str() {
+                "confidence" => {
+                    thr.confidence =
+                        Some(num.ok_or(parse_err(vec![TokenKind::FloatLiteral], &val))?)
+                }
+                "taint" => {
+                    thr.max_taint = Some(num.ok_or(parse_err(vec![TokenKind::FloatLiteral], &val))?)
+                }
+                "budget" => thr.budget = Some(val.text.clone()),
+                _ => return Err(parse_err(vec![TokenKind::Ident], &val)),
+            }
+            if self.at(TokenKind::Comma) {
+                self.advance();
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(thr)
+    }
+
+    // ── Seed-document blocks: `§NAME { key: value ... }` ──
+
+    fn parse_seed_block(&mut self) -> Result<SeedBlock, ParseError> {
+        let start = self.pos;
+        let marker = self.expect(TokenKind::SectionMarker)?.clone();
+        let name = marker.text.trim_start_matches('§').to_string();
+        self.expect(TokenKind::LBrace)?;
+        let entries = self.parse_seed_entries()?;
+        self.expect(TokenKind::RBrace)?;
+        Ok(SeedBlock {
+            name,
+            entries,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_seed_entries(&mut self) -> Result<Vec<SeedEntry>, ParseError> {
+        let mut entries = Vec::new();
+        while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+            if self.at(TokenKind::Comma) {
+                self.advance();
+                continue;
+            }
+            entries.push(self.parse_seed_entry()?);
+        }
+        Ok(entries)
+    }
+
+    /// `key: value` where the key is a run of *adjacent* tokens, so keys such
+    /// as `personality-traits`, `Phase-1` and `L1-WORKING` work.
+    fn parse_seed_entry(&mut self) -> Result<SeedEntry, ParseError> {
+        let start = self.pos;
+        let mut key = String::new();
+        let mut prev_end: Option<usize> = None;
+        loop {
+            let t = self.peek().ok_or(eof_err())?.clone();
+            if t.kind == TokenKind::Colon && !key.is_empty() {
+                break;
+            }
+            let contiguous = prev_end.is_none_or(|pe| t.span.offset() == pe);
+            let bad_kind = matches!(
+                t.kind,
+                TokenKind::Eof
+                    | TokenKind::LBrace
+                    | TokenKind::RBrace
+                    | TokenKind::LBracket
+                    | TokenKind::RBracket
+                    | TokenKind::Comma
+                    | TokenKind::Colon
+            );
+            if bad_kind || !contiguous {
+                return Err(parse_err(vec![TokenKind::Colon], &t));
+            }
+            key.push_str(&t.text);
+            prev_end = Some(t.span.offset() + t.span.len());
+            self.advance();
+        }
+        self.expect(TokenKind::Colon)?;
+        let value = self.parse_seed_value()?;
+        Ok(SeedEntry {
+            key,
+            value,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_seed_value(&mut self) -> Result<SeedValue, ParseError> {
+        let first = self.peek().ok_or(eof_err())?.clone();
+        match first.kind {
+            TokenKind::LBrace => {
+                self.advance();
+                let entries = self.parse_seed_entries()?;
+                self.expect(TokenKind::RBrace)?;
+                Ok(SeedValue::Map(entries))
+            }
+            TokenKind::LBracket => {
+                self.advance();
+                let mut items = Vec::new();
+                while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
+                    if self.at(TokenKind::Comma) {
+                        self.advance();
+                        continue;
+                    }
+                    items.push(self.parse_seed_value()?);
+                }
+                self.expect(TokenKind::RBracket)?;
+                Ok(SeedValue::List(items))
+            }
+            TokenKind::Eof | TokenKind::RBrace | TokenKind::RBracket | TokenKind::Comma => {
+                Err(parse_err(vec![TokenKind::Ident], &first))
+            }
+            _ => {
+                // Scalar run: until a comma, closing bracket, or a new line.
+                let mut toks = vec![self.advance().clone()];
+                while let Some(t) = self.peek() {
+                    if t.nl_before
+                        || matches!(
+                            t.kind,
+                            TokenKind::Eof
+                                | TokenKind::Comma
+                                | TokenKind::RBrace
+                                | TokenKind::RBracket
+                        )
+                    {
+                        break;
+                    }
+                    toks.push(self.advance().clone());
+                }
+                if toks.len() == 1 {
+                    let t = &toks[0];
+                    match t.kind {
+                        TokenKind::StringLiteral | TokenKind::RawStringLiteral => {
+                            return Ok(SeedValue::Str(t.text.clone()))
+                        }
+                        TokenKind::IntLiteral | TokenKind::FloatLiteral => {
+                            return Ok(SeedValue::Num(t.text.clone()))
+                        }
+                        TokenKind::TrueLiteral => return Ok(SeedValue::Bool(true)),
+                        TokenKind::FalseLiteral => return Ok(SeedValue::Bool(false)),
+                        _ => {
+                            if t.text == "true" || t.text == "false" {
+                                return Ok(SeedValue::Bool(t.text == "true"));
+                            }
+                        }
+                    }
+                }
+                let mut out = String::new();
+                let mut prev_end: Option<usize> = None;
+                for t in &toks {
+                    if prev_end.is_some_and(|pe| t.span.offset() != pe) {
+                        out.push(' ');
+                    }
+                    out.push_str(&t.text);
+                    prev_end = Some(t.span.offset() + t.span.len());
+                }
+                Ok(SeedValue::Bare(out))
+            }
+        }
     }
 
     fn parse_section(&mut self) -> Result<SectionDecl, ParseError> {
@@ -593,7 +779,10 @@ impl Parser<'_> {
             TokenKind::IntLiteral => {
                 let t = self.advance();
                 Ok(Box::new(ExprNode {
-                    kind: ExprKind::Lit(Literal::Int(t.text.parse().unwrap_or(0), IntBase::Dec)),
+                    kind: ExprKind::Lit(Literal::Int(
+                        t.text.replace('_', "").parse().unwrap_or(0),
+                        IntBase::Dec,
+                    )),
                     span: t.span,
                 }))
             }
@@ -710,31 +899,104 @@ impl Parser<'_> {
             TokenKind::KwDischarge => {
                 self.advance();
                 let e = self.parse_expr()?;
-                self.expect(TokenKind::LBrace)?;
-                let mut thresholds = Vec::new();
-                while !self.at(TokenKind::RBrace) {
-                    let _thresh = self.parse_expr()?;
-                    self.expect(TokenKind::FatArrow)?;
+                let mut arms: Vec<(Threshold, BlockExpr)> = Vec::new();
+                let with_form = self
+                    .peek()
+                    .is_some_and(|t| t.kind == TokenKind::Ident && t.text == "with");
+                if with_form {
+                    // Spec form: discharge e with { confidence: 0.85, taint: 0.2, budget: remaining } { body }
+                    self.advance();
+                    let thr = self.parse_threshold_list()?;
                     let body = self.parse_block()?;
-                    thresholds.push((1.0, body));
-                    if self.at(TokenKind::Comma) {
-                        self.advance();
+                    arms.push((thr, body));
+                } else {
+                    // Arm form: discharge e { confidence >= 0.9 => { .. }, else => { .. } }
+                    self.expect(TokenKind::LBrace)?;
+                    while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                        let thr = if self.at(TokenKind::KwElse) {
+                            self.advance();
+                            Threshold {
+                                is_else: true,
+                                ..Threshold::default()
+                            }
+                        } else {
+                            let cond = self.parse_expr()?;
+                            threshold_from_condition(&cond)
+                        };
+                        self.expect(TokenKind::FatArrow)?;
+                        let body = self.parse_block()?;
+                        arms.push((thr, body));
+                        if self.at(TokenKind::Comma) {
+                            self.advance();
+                        }
                     }
+                    self.expect(TokenKind::RBrace)?;
                 }
-                self.expect(TokenKind::RBrace)?;
                 Ok(Box::new(ExprNode {
-                    kind: ExprKind::Discharge(e, thresholds),
+                    kind: ExprKind::Discharge(e, arms),
                     span: self.span_from(start),
                 }))
             }
             TokenKind::KwPerform => {
                 self.advance();
-                let op = self.parse_ident()?;
-                self.expect(TokenKind::LParen)?;
-                let args =
-                    self.parse_delimited(TokenKind::Comma, TokenKind::RParen, |p| p.parse_expr())?;
+                let (op, args) = if self.at(TokenKind::LParen) {
+                    // Call form: perform("search", query)
+                    let lp = self.advance().span;
+                    let mut args =
+                        self.parse_delimited(TokenKind::Comma, TokenKind::RParen, |p| {
+                            p.parse_expr()
+                        })?;
+                    let name = match args.first().map(|a| &a.kind) {
+                        Some(ExprKind::Lit(Literal::String(n))) => n.clone(),
+                        _ => {
+                            let found = self.peek().cloned().unwrap_or_else(|| Token {
+                                kind: TokenKind::Eof,
+                                text: String::new(),
+                                span: lp,
+                                nl_before: false,
+                            });
+                            return Err(parse_err(vec![TokenKind::StringLiteral], &found));
+                        }
+                    };
+                    args.remove(0);
+                    (Ident { name, span: lp }, args)
+                } else {
+                    // Path form: perform Effect::NetworkCall(url)
+                    let first = self.parse_ident()?;
+                    let mut name = first.name.clone();
+                    while self.at(TokenKind::ColonColon) {
+                        self.advance();
+                        let seg = self.parse_ident()?;
+                        name.push_str("::");
+                        name.push_str(&seg.name);
+                    }
+                    self.expect(TokenKind::LParen)?;
+                    let args = self
+                        .parse_delimited(TokenKind::Comma, TokenKind::RParen, |p| p.parse_expr())?;
+                    (
+                        Ident {
+                            name,
+                            span: first.span,
+                        },
+                        args,
+                    )
+                };
+                let requires = if self.at(TokenKind::KwRequires) {
+                    self.advance();
+                    let first = self.parse_ident()?;
+                    let mut cap = first.name;
+                    while self.at(TokenKind::ColonColon) {
+                        self.advance();
+                        let seg = self.parse_ident()?;
+                        cap.push_str("::");
+                        cap.push_str(&seg.name);
+                    }
+                    Some(cap)
+                } else {
+                    None
+                };
                 Ok(Box::new(ExprNode {
-                    kind: ExprKind::Perform(op, args),
+                    kind: ExprKind::Perform(op, args, requires),
                     span: self.span_from(start),
                 }))
             }
@@ -744,6 +1006,19 @@ impl Parser<'_> {
                 Ok(Box::new(ExprNode {
                     kind: ExprKind::Spawn(e),
                     span: self.span_from(start),
+                }))
+            }
+            // Domain keywords (query, memory, tick, ...) are contextual: in
+            // expression position they act as plain identifiers.
+            k if k as u8 > TokenKind::KwWhile as u8 && k as u8 <= TokenKind::KwZkvm as u8 => {
+                let t = self.advance().clone();
+                let id = Ident {
+                    name: t.text.clone(),
+                    span: t.span,
+                };
+                self.parse_postfix(Box::new(ExprNode {
+                    kind: ExprKind::Ident(id),
+                    span: t.span,
                 }))
             }
             _ => Err(parse_err(
@@ -796,6 +1071,31 @@ impl Parser<'_> {
         Ok(expr)
     }
 
+    /// True when the next token begins a nested item declaration (as opposed
+    /// to a statement or expression). Decided by lookahead only, so no
+    /// tokens are consumed on the statement path.
+    fn at_item_start(&self) -> bool {
+        matches!(
+            self.peek_kind(),
+            Some(
+                TokenKind::KwFn
+                    | TokenKind::KwPub
+                    | TokenKind::KwAgent
+                    | TokenKind::KwSeed
+                    | TokenKind::KwSection
+                    | TokenKind::KwStruct
+                    | TokenKind::KwEnum
+                    | TokenKind::KwTrait
+                    | TokenKind::KwImpl
+                    | TokenKind::KwMod
+                    | TokenKind::KwUse
+                    | TokenKind::KwExtern
+                    | TokenKind::KwEffect
+                    | TokenKind::KwHandler
+            )
+        )
+    }
+
     fn parse_block(&mut self) -> Result<BlockExpr, ParseError> {
         let start = self.pos;
         self.expect(TokenKind::LBrace)?;
@@ -806,7 +1106,8 @@ impl Parser<'_> {
                 self.advance();
                 continue;
             }
-            if let Ok(item) = self.parse_top_level_item() {
+            if self.at_item_start() {
+                let item = self.parse_top_level_item()?;
                 stmts.push(Stmt::Item(item));
             } else if self.at(TokenKind::KwLet) {
                 stmts.push(Stmt::Let(self.parse_let_stmt()?));
@@ -814,8 +1115,21 @@ impl Parser<'_> {
                 stmts.push(self.parse_return()?);
             } else {
                 let e = self.parse_expr()?;
+                let block_like = matches!(
+                    e.kind,
+                    ExprKind::If(_)
+                        | ExprKind::Match(_)
+                        | ExprKind::Loop(_)
+                        | ExprKind::While(_)
+                        | ExprKind::For(_)
+                        | ExprKind::Block(_)
+                        | ExprKind::Discharge(..)
+                );
                 if self.at(TokenKind::Semicolon) {
                     self.advance();
+                    stmts.push(Stmt::Expr(e));
+                } else if block_like && !self.at(TokenKind::RBrace) {
+                    // Block-like expressions end a statement without `;`.
                     stmts.push(Stmt::Expr(e));
                 } else {
                     last = Some(e);
@@ -1037,7 +1351,10 @@ impl Parser<'_> {
     fn parse_literal(&mut self) -> Result<Literal, ParseError> {
         let t = self.advance();
         match t.kind {
-            TokenKind::IntLiteral => Ok(Literal::Int(t.text.parse().unwrap_or(0), IntBase::Dec)),
+            TokenKind::IntLiteral => Ok(Literal::Int(
+                t.text.replace('_', "").parse().unwrap_or(0),
+                IntBase::Dec,
+            )),
             TokenKind::FloatLiteral => Ok(Literal::Float(t.text.parse().unwrap_or(0.0))),
             TokenKind::StringLiteral => Ok(Literal::String(t.text.clone())),
             TokenKind::CharLiteral => Ok(Literal::Char(t.text.chars().next().unwrap_or('?'))),
@@ -1084,8 +1401,10 @@ impl Parser<'_> {
         let t = self.advance();
         if t.kind == TokenKind::Ident
             || t.kind == TokenKind::KwSelf
+            // Core (S0) keywords and domain keywords are both accepted here;
+            // domain keywords (query, memory, tick, ...) are contextual.
             || (t.kind as u8 >= TokenKind::KwAgent as u8
-                && t.kind as u8 <= TokenKind::KwWhile as u8)
+                && t.kind as u8 <= TokenKind::KwZkvm as u8)
         {
             Ok(Ident {
                 name: t.text.clone(),
@@ -1121,6 +1440,27 @@ impl Parser<'_> {
         }
         Ok(items)
     }
+}
+
+/// Extract a numeric threshold from an arm condition such as
+/// `confidence >= 0.9` or `taint <= 0.2`.
+fn threshold_from_condition(cond: &Expr) -> Threshold {
+    let mut thr = Threshold::default();
+    if let ExprKind::Binary(op, lhs, rhs) = &cond.kind {
+        let value = match &rhs.kind {
+            ExprKind::Lit(Literal::Float(f)) => Some(*f),
+            ExprKind::Lit(Literal::Int(n, _)) => Some(*n as f64),
+            _ => None,
+        };
+        if let (ExprKind::Ident(id), Some(v)) = (&lhs.kind, value) {
+            match (id.name.as_str(), op) {
+                ("confidence", BinaryOp::GtEq | BinaryOp::Gt) => thr.confidence = Some(v),
+                ("taint", BinaryOp::LtEq | BinaryOp::Lt) => thr.max_taint = Some(v),
+                _ => {}
+            }
+        }
+    }
+    thr
 }
 
 fn eof_err() -> ParseError {

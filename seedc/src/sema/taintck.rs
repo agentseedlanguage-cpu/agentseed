@@ -101,15 +101,14 @@ impl TaintChecker {
                 if !source_taint.can_flow_into(target_taint) {
                     self.errors.push(TypeError::TaintViolation {
                         message: format!(
-                            "Cannot assign {:?} value to {:?} target",
-                            source_taint, target_taint
+                            "Cannot assign {source_taint:?} value to {target_taint:?} target"
                         ),
                         span: expr.span,
                     });
                 }
                 source_taint
             }
-            ExprKind::Perform(_, args) => {
+            ExprKind::Perform(_, args, _) => {
                 let mut t = self.pc_level;
                 for a in args {
                     t = t.join(self.check_expr(a));
@@ -157,16 +156,14 @@ impl Default for TaintChecker {
 
 pub fn check_taint(program: Program) -> Result<Program, TypeError> {
     let mut checker = TaintChecker::new();
-    for item in &program.items {
-        if let TopLevelItem::Fn(f) = item {
-            if let Some(body) = &f.body {
-                checker.check_expr(&Box::new(ExprNode {
-                    kind: ExprKind::Block(body.clone()),
-                    span: f.span,
-                }));
-            }
+    crate::sema::visit_fns(&program.items, &mut |f| {
+        if let Some(body) = &f.body {
+            checker.check_expr(&Box::new(ExprNode {
+                kind: ExprKind::Block(body.clone()),
+                span: f.span,
+            }));
         }
-    }
+    });
     if !checker.errors.is_empty() {
         return Err(checker.errors.remove(0));
     }

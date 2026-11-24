@@ -100,16 +100,14 @@ impl Default for ContractChecker {
 
 pub fn check_contracts(program: Program) -> Result<Program, TypeError> {
     let mut checker = ContractChecker::new();
-    for item in &program.items {
-        if let TopLevelItem::Fn(f) = item {
-            if let Some(body) = &f.body {
-                checker.check_expr(&Box::new(ExprNode {
-                    kind: ExprKind::Block(body.clone()),
-                    span: f.span,
-                }));
-            }
+    crate::sema::visit_fns(&program.items, &mut |f| {
+        if let Some(body) = &f.body {
+            checker.check_expr(&Box::new(ExprNode {
+                kind: ExprKind::Block(body.clone()),
+                span: f.span,
+            }));
         }
-    }
+    });
     if !checker.errors.is_empty() {
         return Err(checker.errors.remove(0));
     }

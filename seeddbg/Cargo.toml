@@ -9,7 +9,6 @@ name = "seeddbg"
 path = "src/main.rs"
 
 [dependencies]
-dap = "0.4.1-alpha1"
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

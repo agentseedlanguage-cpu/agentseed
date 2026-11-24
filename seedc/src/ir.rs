@@ -94,6 +94,8 @@ pub enum Opcode {
     CorrigibilityCheck,
     Phi,
     Nop,
+    /// Closes the innermost `Discharge` scope.
+    DischargeEnd,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,7 +149,7 @@ pub enum IrType {
 
 impl fmt::Display for IrType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

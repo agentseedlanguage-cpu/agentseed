@@ -50,6 +50,8 @@ pub struct VMState {
     pub effects: Vec<String>,
     /// Whether the VM is currently inside a discharge block.
     pub inside_discharge: bool,
+    /// Nesting depth of open `discharge` scopes; `inside_discharge` is `depth > 0`.
+    pub discharge_depth: u32,
     /// Confidence accumulator (for confidence-gated operations).
     pub confidence: Vec<f64>,
 
@@ -132,6 +134,7 @@ impl VMState {
             merkle_roots: Default::default(),
             effects: Vec::new(),
             inside_discharge: false,
+            discharge_depth: 0,
             confidence: Vec::new(),
             capabilities: Vec::new(),
             provenance_log: Vec::new(),
@@ -244,6 +247,14 @@ pub enum VmError {
     #[error("confidence below threshold: {actual} < {threshold}")]
     #[diagnostic(help("Increase confidence or lower the threshold."))]
     LowConfidence { actual: f64, threshold: f64 },
+
+    #[error("taint influence above limit: {actual} > {limit}")]
+    #[diagnostic(help("Sanitize the input or raise the taint limit explicitly."))]
+    TaintExceeded { actual: f64, limit: f64 },
+
+    #[error("budget exceeded: needs up to {needed} tokens, {remaining} remaining")]
+    #[diagnostic(help("Raise the budget or choose a cheaper path."))]
+    BudgetExceeded { needed: u64, remaining: u64 },
 
     #[error("capability `{0}` not held")]
     #[diagnostic(help("Request a grant for this capability from the principal."))]

@@ -16,8 +16,14 @@ use std::str::Chars;
 pub fn tokenize(source: &str) -> Result<Vec<Token>, LexError> {
     let mut lexer = Lexer::new(source);
     let mut tokens = Vec::new();
+    let mut prev_end = 0usize;
     loop {
-        let tok = lexer.next_token()?;
+        let mut tok = lexer.next_token()?;
+        let tok_start = tok.span.offset();
+        if tok_start >= prev_end && tok_start <= source.len() {
+            tok.nl_before = source[prev_end..tok_start].contains('\n');
+        }
+        prev_end = tok_start + tok.span.len();
         let is_eof = tok.kind == TokenKind::Eof;
         tokens.push(tok);
         if is_eof {
@@ -183,6 +189,13 @@ impl<'a> Lexer<'a> {
                 }
             }
 
+            // ── Seed-document section markers: §NAME-WITH-DASHES ──
+            '§' => {
+                self.take_while(|ch| ch.is_alphanumeric() || ch == '-' || ch == '_');
+                let text = &self.source[start..self.pos];
+                return Ok(Token::new(TokenKind::SectionMarker, text, start, self.pos));
+            }
+
             // ── String literals ──
             '"' => {
                 let content_start = self.pos; // after opening quote
@@ -214,7 +227,17 @@ impl<'a> Lexer<'a> {
             '*' => self.check_compound('=', TokenKind::StarEq, TokenKind::Star),
             '%' => self.check_compound('=', TokenKind::PercentEq, TokenKind::Percent),
             '!' => self.check_compound('=', TokenKind::NotEq, TokenKind::Not),
-            '=' => self.check_compound('=', TokenKind::EqEq, TokenKind::Eq),
+            '=' => match self.peek() {
+                Some('=') => {
+                    self.advance();
+                    TokenKind::EqEq
+                }
+                Some('>') => {
+                    self.advance();
+                    TokenKind::FatArrow
+                }
+                _ => TokenKind::Eq,
+            },
             '<' => self.check_two('<', '=', TokenKind::Shl, TokenKind::LtEq, TokenKind::Lt),
             '>' => self.check_two('>', '=', TokenKind::Shr, TokenKind::GtEq, TokenKind::Gt),
             '&' => self.check_compound('&', TokenKind::AndAnd, TokenKind::And),

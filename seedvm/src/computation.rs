@@ -84,22 +84,24 @@ impl Computation {
         budget_remaining: u64,
     ) -> Result<(), crate::state::VmError> {
         use crate::state::VmError;
-        if self.uncertainty_hi < confidence_threshold {
+        // Fail-closed: gate on the *lower* bound of the confidence interval
+        // (worst case), never the optimistic upper bound.
+        if self.uncertainty_lo < confidence_threshold {
             return Err(VmError::LowConfidence {
-                actual: self.uncertainty_hi,
+                actual: self.uncertainty_lo,
                 threshold: confidence_threshold,
             });
         }
         if self.taint_influence > taint_threshold {
-            return Err(VmError::LowConfidence {
+            return Err(VmError::TaintExceeded {
                 actual: self.taint_influence,
-                threshold: taint_threshold,
+                limit: taint_threshold,
             });
         }
         if self.cost_tokens_max > budget_remaining {
-            return Err(VmError::LowConfidence {
-                actual: self.cost_tokens_max as f64,
-                threshold: budget_remaining as f64,
+            return Err(VmError::BudgetExceeded {
+                needed: self.cost_tokens_max,
+                remaining: budget_remaining,
             });
         }
         Ok(())

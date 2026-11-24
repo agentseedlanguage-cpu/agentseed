@@ -24,7 +24,7 @@ struct Header {
 /// Serialize a module to a vector of bytes.
 pub fn serialize(module: &Module) -> Result<Vec<u8>, IrError> {
     let payload = bincode::serialize(module).map_err(|e| IrError::ControlFlowError {
-        msg: format!("Serialization error: {}", e),
+        msg: format!("Serialization error: {e}"),
         span: None,
     })?;
     let checksum = crc32fast::hash(&payload);
@@ -38,7 +38,7 @@ pub fn serialize(module: &Module) -> Result<Vec<u8>, IrError> {
     let mut out = Vec::new();
     out.extend(
         bincode::serialize(&header).map_err(|e| IrError::ControlFlowError {
-            msg: format!("Header serialization error: {}", e),
+            msg: format!("Header serialization error: {e}"),
             span: None,
         })?,
     );
@@ -57,7 +57,7 @@ pub fn deserialize(data: &[u8]) -> Result<Module, IrError> {
     let header: Header =
         bincode::deserialize(&data[..std::mem::size_of::<Header>()]).map_err(|e| {
             IrError::ControlFlowError {
-                msg: format!("Header deserialization error: {}", e),
+                msg: format!("Header deserialization error: {e}"),
                 span: None,
             }
         })?;
@@ -82,7 +82,7 @@ pub fn deserialize(data: &[u8]) -> Result<Module, IrError> {
         });
     }
     bincode::deserialize(payload).map_err(|e| IrError::ControlFlowError {
-        msg: format!("Deserialization error: {}", e),
+        msg: format!("Deserialization error: {e}"),
         span: None,
     })
 }

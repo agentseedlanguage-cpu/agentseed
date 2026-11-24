@@ -47,8 +47,39 @@ pub enum TopLevelItem {
 #[derive(Debug, Clone)]
 pub struct SeedDecl {
     pub name: Ident,
+    /// Typed `section Name { field: Type; }` declarations.
     pub sections: Vec<SectionDecl>,
+    /// Free-form `§NAME { key: value }` configuration blocks.
+    pub blocks: Vec<SeedBlock>,
     pub span: SourceSpan,
+}
+
+/// A `§NAME { ... }` configuration block inside a `seed` declaration.
+#[derive(Debug, Clone)]
+pub struct SeedBlock {
+    /// Marker name without the leading `§` (e.g. `IDENTITY-ANCHOR`).
+    pub name: String,
+    pub entries: Vec<SeedEntry>,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct SeedEntry {
+    pub key: String,
+    pub value: SeedValue,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub enum SeedValue {
+    Str(String),
+    Bool(bool),
+    /// Numeric literal, kept as written (e.g. `0.9`).
+    Num(String),
+    /// Bare words / mixed tokens kept verbatim (e.g. `30s`, `O:0.9 C:0.8`).
+    Bare(String),
+    List(Vec<SeedValue>),
+    Map(Vec<SeedEntry>),
 }
 
 #[derive(Debug, Clone)]
@@ -409,8 +440,12 @@ pub enum ExprKind {
     Ask(Option<Type>, Expr),
     Confident(Expr, ConfidenceLevel),
     Think(ThinkDepth, Expr),
-    Discharge(Expr, Vec<(f64, BlockExpr)>),
-    Perform(Ident, Vec<Expr>),
+    /// `discharge e with { confidence: .., taint: .., budget: .. } { body }`
+    /// or arm form `discharge e { confidence >= 0.9 => {..}, else => {..} }`.
+    Discharge(Expr, Vec<(Threshold, BlockExpr)>),
+    /// `perform Effect::X(args) [requires cap::Y]` (or `perform("x", args)`).
+    /// The third field is the required capability path, if declared.
+    Perform(Ident, Vec<Expr>, Option<String>),
     Spawn(Expr),
     Train(TrainConfig, BlockExpr),
     Evolve(BlockExpr),
@@ -651,6 +686,19 @@ pub enum Literal {
     Char(char),
     Bool(bool),
     Null,
+}
+
+/// Gate thresholds attached to one `discharge` arm.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Threshold {
+    /// Minimum acceptable *lower bound* of the confidence interval.
+    pub confidence: Option<f64>,
+    /// Maximum acceptable taint influence in `[0, 1]`.
+    pub max_taint: Option<f64>,
+    /// Budget bound as written (`remaining`, `5000`, ...).
+    pub budget: Option<String>,
+    /// The catch-all `else =>` arm.
+    pub is_else: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,201 +1,200 @@
-//! AGENT-SEED v15.2 debug adapter — `seeddbg`.
+//! AGENT-SEED debug adapter — `seeddbg`.
 //!
-//! Implements the Debug Adapter Protocol (DAP) so that editors like VS Code
-//! can set breakpoints, step through agent code, inspect memory layers,
-//! and view the provenance graph.
+//! A minimal, dependency-light Debug Adapter Protocol (DAP) server speaking
+//! `Content-Length`-framed JSON over stdio. Current status (honest scope):
 //!
-//! Uses the `dap` crate (dap-rs) for the protocol implementation, following
-//! the same pattern as LSP: a server reads JSON-RPC from stdin and writes
-//! responses to stdout.
+//! * implemented: framing, `initialize`, `launch`, `setBreakpoints` (recorded,
+//!   reported *unverified* until the VM exposes a stepping hook),
+//!   `threads`, `stackTrace`/`scopes`/`variables` (empty), `configurationDone`,
+//!   `disconnect`
+//! * not yet: real stepping, variable inspection, memory-layer browsing
+//!   (tracked in the roadmap, Phase F10)
 
-use dap::prelude::*;
-use std::io::{BufReader, BufWriter};
-use thiserror::Error;
+use serde_json::{json, Value};
+use std::io::{self, BufRead, Write};
 
-// ── Adapter ──
-
-struct SeedDebugAdapter;
-
-#[derive(Error, Debug)]
-enum AdapterError {
-    #[error("unhandled command")]
-    UnhandledCommand,
+/// Read one DAP message (`Content-Length: N\r\n\r\n<json>`).
+pub fn read_message<R: BufRead>(r: &mut R) -> io::Result<Option<Value>> {
+    let mut len: Option<usize> = None;
+    loop {
+        let mut line = String::new();
+        if r.read_line(&mut line)? == 0 {
+            return Ok(None);
+        }
+        let line = line.trim_end();
+        if line.is_empty() {
+            break;
+        }
+        if let Some(v) = line.strip_prefix("Content-Length:") {
+            len = v.trim().parse().ok();
+        }
+    }
+    let len = len.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing length"))?;
+    let mut buf = vec![0u8; len];
+    r.read_exact(&mut buf)?;
+    serde_json::from_slice(&buf)
+        .map(Some)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
-type DynResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+/// Write one DAP message with framing.
+pub fn write_message<W: Write>(w: &mut W, msg: &Value) -> io::Result<()> {
+    let body = serde_json::to_vec(msg)?;
+    write!(w, "Content-Length: {}\r\n\r\n", body.len())?;
+    w.write_all(&body)?;
+    w.flush()
+}
 
-impl Adapter for SeedDebugAdapter {
-    fn accept(
-        &mut self,
-        request: Request,
-        _ctx: &mut dyn Context,
-    ) -> Result<Response, Box<dyn std::error::Error>> {
-        use dap::requests as req;
+#[derive(Default)]
+pub struct Adapter {
+    seq: i64,
+    program: Option<String>,
+    breakpoints: Vec<(String, i64)>,
+}
 
-        Ok(match request.command {
-            Command::Initialize(_) => {
-                let caps = types::Capabilities {
-                    supports_configuration_done_request: Some(true),
-                    supports_step_in_targets_request: Some(false),
-                    supports_conditional_breakpoints: Some(true),
-                    supports_hit_conditional_breakpoints: Some(false),
-                    supports_log_points: Some(true),
-                    supports_function_breakpoints: Some(false),
-                    supports_data_breakpoints: Some(false),
-                    supports_delayed_stack_trace_loading: Some(false),
-                    ..Default::default()
-                };
-                request.success(ResponseBody::Initialize(Some(caps)))
-            }
+impl Adapter {
+    fn next_seq(&mut self) -> i64 {
+        self.seq += 1;
+        self.seq
+    }
 
-            Command::Launch(ref args) => {
-                tracing::info!("Launch requested: {:?}", args);
-                request.success(ResponseBody::Launch)
-            }
-
-            Command::SetBreakpoints(ref args) => {
-                let source_path = args.source.path.as_deref().unwrap_or("unknown");
-                let breakpoints: Vec<types::Breakpoint> = args
-                    .breakpoints
-                    .as_deref()
-                    .unwrap_or(&[])
-                    .iter()
-                    .map(|sb| types::Breakpoint {
-                        id: None,
-                        verified: true,
-                        message: None,
-                        source: Some(types::Source {
-                            path: Some(source_path.to_string()),
-                            ..Default::default()
-                        }),
-                        line: Some(sb.line),
-                        column: sb.column,
-                        end_line: None,
-                        end_column: None,
-                        instruction_reference: None,
-                        offset: None,
-                    })
-                    .collect();
-
-                let body = types::SetBreakpointsResponseBody { breakpoints };
-                request.success(ResponseBody::SetBreakpoints(body))
-            }
-
-            Command::Continue(_) => {
-                request.success(ResponseBody::Continue(types::ContinueResponseBody {
-                    all_threads_continued: Some(true),
-                }))
-            }
-
-            Command::Next(_) => request.success(ResponseBody::Next),
-            Command::StepIn(_) => request.success(ResponseBody::StepIn),
-            Command::StepOut(_) => request.success(ResponseBody::StepOut),
-            Command::Pause(_) => request.success(ResponseBody::Pause),
-            Command::Threads => {
-                request.success(ResponseBody::Threads(types::ThreadsResponseBody {
-                    threads: vec![types::Thread {
-                        id: 0,
-                        name: "agent-main".into(),
-                    }],
-                }))
-            }
-
-            Command::StackTrace(ref _args) => {
-                request.success(ResponseBody::StackTrace(types::StackTraceResponseBody {
-                    stack_frames: vec![types::StackFrame {
-                        id: 0,
-                        name: "agent::main".into(),
-                        source: Some(types::Source {
-                            path: Some("agent.seed".into()),
-                            ..Default::default()
-                        }),
-                        line: 1,
-                        column: 1,
-                        end_line: None,
-                        end_column: None,
-                        can_restart: Some(false),
-                        instruction_pointer_reference: None,
-                        module_id: None,
-                        presentation_hint: None,
-                    }],
-                    total_frames: Some(1),
-                }))
-            }
-
-            Command::Scopes(ref _args) => {
-                request.success(ResponseBody::Scopes(types::ScopesResponseBody {
-                    scopes: vec![
-                        types::Scope {
-                            name: "Locals".into(),
-                            variables_reference: 1,
-                            named_variables: Some(10),
-                            indexed_variables: None,
-                            expensive: false,
-                            source: None,
-                            line: None,
-                            column: None,
-                            end_line: None,
-                            end_column: None,
-                        },
-                        types::Scope {
-                            name: "Memory Layers".into(),
-                            variables_reference: 2,
-                            named_variables: Some(8),
-                            indexed_variables: None,
-                            expensive: true,
-                            source: None,
-                            line: None,
-                            column: None,
-                            end_line: None,
-                            end_column: None,
-                        },
-                    ],
-                }))
-            }
-
-            Command::Variables(ref _args) => {
-                request.success(ResponseBody::Variables(types::VariablesResponseBody {
-                    variables: vec![
-                        types::Variable {
-                            name: "ip".into(),
-                            value: "(0, 0, 0)".into(),
-                            variables_reference: 0,
-                            ..Default::default()
-                        },
-                        types::Variable {
-                            name: "stack_depth".into(),
-                            value: "3".into(),
-                            variables_reference: 0,
-                            ..Default::default()
-                        },
-                    ],
-                }))
-            }
-
-            Command::Disconnect(_) => request.success(ResponseBody::Disconnect),
-            Command::ConfigurationDone => request.success(ResponseBody::ConfigurationDone),
-
-            _ => {
-                tracing::warn!("Unhandled DAP command: {:?}", request.command);
-                request.error("unsupported command")
-            }
+    fn ok(&mut self, req: &Value, body: Value) -> Value {
+        json!({
+            "seq": self.next_seq(), "type": "response",
+            "request_seq": req["seq"], "success": true,
+            "command": req["command"], "body": body
         })
+    }
+
+    fn err(&mut self, req: &Value, msg: &str) -> Value {
+        json!({
+            "seq": self.next_seq(), "type": "response",
+            "request_seq": req["seq"], "success": false,
+            "command": req["command"], "message": msg
+        })
+    }
+
+    /// Handle a request; returns responses/events to send and whether to stop.
+    pub fn handle(&mut self, req: &Value) -> (Vec<Value>, bool) {
+        let cmd = req["command"].as_str().unwrap_or("");
+        match cmd {
+            "initialize" => {
+                let caps = json!({
+                    "supportsConfigurationDoneRequest": true,
+                    "supportsConditionalBreakpoints": false,
+                    "supportsFunctionBreakpoints": false,
+                    "supportsStepInTargetsRequest": false
+                });
+                let resp = self.ok(req, caps);
+                let ev = json!({"seq": self.next_seq(), "type": "event", "event": "initialized"});
+                (vec![resp, ev], false)
+            }
+            "launch" => {
+                self.program = req["arguments"]["program"].as_str().map(str::to_owned);
+                (vec![self.ok(req, json!({}))], false)
+            }
+            "setBreakpoints" => {
+                let path = req["arguments"]["source"]["path"]
+                    .as_str()
+                    .unwrap_or("unknown")
+                    .to_owned();
+                self.breakpoints.retain(|(p, _)| *p != path);
+                let mut out = vec![];
+                for bp in req["arguments"]["breakpoints"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    let line = bp["line"].as_i64().unwrap_or(0);
+                    self.breakpoints.push((path.clone(), line));
+                    out.push(json!({
+                        "verified": false, "line": line,
+                        "message": "recorded; VM stepping hook not yet available"
+                    }));
+                }
+                (vec![self.ok(req, json!({ "breakpoints": out }))], false)
+            }
+            "threads" => (
+                vec![self.ok(req, json!({"threads": [{"id": 1, "name": "agent-main"}]}))],
+                false,
+            ),
+            "stackTrace" => (
+                vec![self.ok(req, json!({"stackFrames": [], "totalFrames": 0}))],
+                false,
+            ),
+            "scopes" => (vec![self.ok(req, json!({"scopes": []}))], false),
+            "variables" => (vec![self.ok(req, json!({"variables": []}))], false),
+            "configurationDone" => (vec![self.ok(req, json!({}))], false),
+            "disconnect" => (vec![self.ok(req, json!({}))], true),
+            other => {
+                let msg = format!("unsupported command `{other}`");
+                (vec![self.err(req, &msg)], false)
+            }
+        }
     }
 }
 
-// ── Entry point ──
-
-fn main() -> DynResult<()> {
-    tracing_subscriber::fmt::init();
-
-    let output = BufWriter::new(std::io::stdout());
-    let input = BufReader::new(std::io::stdin());
-    let adapter = SeedDebugAdapter;
-
-    let mut server = Server::new(input, output);
-    tracing::info!("AGENT-SEED Debug Adapter listening on stdio");
-
-    server.run(&mut SeedDebugAdapter)?;
-
+fn main() -> io::Result<()> {
+    let stdin = io::stdin();
+    let mut input = stdin.lock();
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let mut adapter = Adapter::default();
+    while let Some(req) = read_message(&mut input)? {
+        let (msgs, stop) = adapter.handle(&req);
+        for m in msgs {
+            write_message(&mut out, &m)?;
+        }
+        if stop {
+            break;
+        }
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(v: &Value) -> Vec<u8> {
+        let mut b = vec![];
+        write_message(&mut b, v).unwrap();
+        b
+    }
+
+    #[test]
+    fn framing_roundtrip() {
+        let msg = json!({"seq": 1, "type": "request", "command": "threads"});
+        let bytes = frame(&msg);
+        let mut cur = io::Cursor::new(bytes);
+        assert_eq!(read_message(&mut cur).unwrap().unwrap(), msg);
+        assert!(read_message(&mut cur).unwrap().is_none());
+    }
+
+    #[test]
+    fn initialize_emits_initialized_event() {
+        let mut a = Adapter::default();
+        let (msgs, stop) = a.handle(&json!({"seq": 1, "command": "initialize"}));
+        assert!(!stop);
+        assert_eq!(msgs[0]["success"], true);
+        assert_eq!(msgs[1]["event"], "initialized");
+    }
+
+    #[test]
+    fn breakpoints_reported_unverified() {
+        let mut a = Adapter::default();
+        let req = json!({"seq": 2, "command": "setBreakpoints", "arguments":
+            {"source": {"path": "a.seed"}, "breakpoints": [{"line": 3}]}});
+        let (msgs, _) = a.handle(&req);
+        assert_eq!(msgs[0]["body"]["breakpoints"][0]["verified"], false);
+    }
+
+    #[test]
+    fn unknown_command_errors_and_disconnect_stops() {
+        let mut a = Adapter::default();
+        let (m, _) = a.handle(&json!({"seq": 1, "command": "nope"}));
+        assert_eq!(m[0]["success"], false);
+        let (_, stop) = a.handle(&json!({"seq": 2, "command": "disconnect"}));
+        assert!(stop);
+    }
 }

@@ -261,13 +261,18 @@ impl VM {
 
             // ── Effects (v15.2: Computation‑aware Discharge/Perform) ──
             Opcode::Discharge => {
+                // Thresholds compiled into the instruction override VM defaults.
+                let conf = match instr.operands.get(1) {
+                    Some(op) => self.resolve_f64(op)?,
+                    None => self.confidence_threshold,
+                };
+                let taint = match instr.operands.get(2) {
+                    Some(op) => self.resolve_f64(op)?,
+                    None => self.taint_threshold,
+                };
                 let v = self.state.pop()?;
                 if let Value::Computation(comp) = v {
-                    comp.check_thresholds(
-                        self.confidence_threshold,
-                        self.taint_threshold,
-                        self.budget_remaining,
-                    )?;
+                    comp.check_thresholds(conf, taint, self.budget_remaining)?;
                     let inner = comp.into_value();
                     self.state.provenance(
                         ProvenanceEventKind::DischargeExited,
@@ -280,9 +285,14 @@ impl VM {
                 } else {
                     self.state.push(v);
                 }
+                self.state.discharge_depth += 1;
                 self.state.inside_discharge = true;
                 self.state
                     .provenance(ProvenanceEventKind::DischargeEntered, "entered discharge");
+            }
+            Opcode::DischargeEnd => {
+                self.state.discharge_depth = self.state.discharge_depth.saturating_sub(1);
+                self.state.inside_discharge = self.state.discharge_depth > 0;
             }
             Opcode::Perform => {
                 if !self.state.inside_discharge {
@@ -326,13 +336,13 @@ impl VM {
             Opcode::ConfidenceGate => {
                 let threshold = self.resolve_f64(&instr.operands[0])?;
                 let v = self.state.pop()?;
-                let (value, hi) = match v {
-                    Value::Computation(ref comp) => ((*comp.value).clone(), comp.uncertainty_hi),
+                let (value, lo) = match v {
+                    Value::Computation(ref comp) => ((*comp.value).clone(), comp.uncertainty_lo),
                     ref other => (other.clone(), 1.0),
                 };
-                if hi < threshold {
+                if lo < threshold {
                     return Err(VmError::LowConfidence {
-                        actual: hi,
+                        actual: lo,
                         threshold,
                     });
                 }
@@ -789,5 +799,49 @@ mod tests {
             Value::F64(w) => assert!(w < 1.0, "Weight should decay below 1.0, got {}", w),
             _ => panic!("Expected F64 weight"),
         }
+    }
+
+    #[test]
+    fn test_gate_uses_lower_bound() {
+        let c = Computation::uncertain(Value::I64(1), 0.2, 0.99);
+        assert!(c.check_thresholds(0.9, 1.0, u64::MAX).is_err());
+        let ok = Computation::uncertain(Value::I64(1), 0.95, 0.99);
+        assert!(ok.check_thresholds(0.9, 1.0, u64::MAX).is_ok());
+    }
+
+    #[test]
+    fn test_taint_and_budget_have_distinct_errors() {
+        let mut c = Computation::pure(Value::I64(1));
+        c.taint_influence = 0.8;
+        assert!(matches!(
+            c.check_thresholds(0.0, 0.2, u64::MAX),
+            Err(VmError::TaintExceeded { .. })
+        ));
+        let mut c = Computation::pure(Value::I64(1));
+        c.cost_tokens_max = 100;
+        assert!(matches!(
+            c.check_thresholds(0.0, 1.0, 10),
+            Err(VmError::BudgetExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn test_perform_after_discharge_end_fails() {
+        let mut module = seedc::ir::Module::new();
+        let mut func = Function::new("test".into(), vec![], IrType::I64);
+        let blk = func.entry;
+        func.push_instr(blk, Instr::new(Opcode::Discharge, None, vec![]));
+        func.push_instr(blk, Instr::new(Opcode::DischargeEnd, None, vec![]));
+        func.push_instr(
+            blk,
+            Instr::new(Opcode::Perform, None, vec![Operand::String(0)]),
+        );
+        func.set_terminator(blk, Terminator::Halt);
+        module.add_function(func);
+        let mut vm = VM::new(module, 42);
+        assert!(
+            vm.run().is_err(),
+            "perform after the scope closed must fail"
+        );
     }
 }

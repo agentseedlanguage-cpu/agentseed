@@ -13,6 +13,8 @@ pub struct Token {
     pub kind: TokenKind,
     pub text: String,
     pub span: SourceSpan,
+    /// True when a line break separates this token from the previous one.
+    pub nl_before: bool,
 }
 
 impl Token {
@@ -21,6 +23,7 @@ impl Token {
             kind,
             text: text.into(),
             span: (start..end).into(),
+            nl_before: false,
         }
     }
 }
@@ -206,6 +209,8 @@ pub enum TokenKind {
     FloatLiteral,
     StringLiteral,
     RawStringLiteral,
+    /// `§NAME` section marker used by seed documents (e.g. `§HEARTBEAT`).
+    SectionMarker,
     CharLiteral,
     TrueLiteral,
     FalseLiteral,
@@ -294,7 +299,7 @@ pub enum TokenKind {
 
 impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

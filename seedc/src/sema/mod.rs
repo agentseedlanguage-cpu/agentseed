@@ -5,7 +5,7 @@ pub mod taintck;
 pub mod typeck;
 pub mod types;
 
-use crate::ast::Program;
+use crate::ast::{AgentMember, FnDecl, ImplItem, Program, TopLevelItem};
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
@@ -75,4 +75,37 @@ pub fn check(program: Program) -> Result<Program, TypeError> {
     let program = taintck::check_taint(program)?;
     let program = contractck::check_contracts(program)?;
     Ok(program)
+}
+
+/// Visit every function body in a program: top-level `fn`s, agent methods,
+/// `impl` methods, and the contents of inline `mod`s.
+///
+/// All semantic passes must use this so that code inside agents is checked
+/// exactly like free functions.
+pub(crate) fn visit_fns<'a>(items: &'a [TopLevelItem], f: &mut impl FnMut(&'a FnDecl)) {
+    for item in items {
+        match item {
+            TopLevelItem::Fn(d) => f(d),
+            TopLevelItem::Agent(a) => {
+                for m in &a.members {
+                    if let AgentMember::Method(d) = m {
+                        f(d);
+                    }
+                }
+            }
+            TopLevelItem::Impl(i) => {
+                for it in &i.items {
+                    if let ImplItem::Fn(d) = it {
+                        f(d);
+                    }
+                }
+            }
+            TopLevelItem::Mod(m) => {
+                if let Some(inner) = &m.items {
+                    visit_fns(inner, f);
+                }
+            }
+            _ => {}
+        }
+    }
 }

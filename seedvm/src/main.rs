@@ -138,7 +138,7 @@ fn cmd_prove(args: ProveArgs) -> miette::Result<()> {
             .into_diagnostic()
             .wrap_err_with(|| format!("failed to write proof to `{}`", path.display()))?;
     } else {
-        println!("{}", proof_str);
+        println!("{proof_str}");
     }
 
     Ok(())

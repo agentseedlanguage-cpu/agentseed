@@ -23,7 +23,7 @@ impl EffectChecker {
 
     pub fn check_expr(&mut self, expr: &Expr) -> HashSet<Effect> {
         match &expr.kind {
-            ExprKind::Perform(op, args) => {
+            ExprKind::Perform(op, args, _) => {
                 let mut effects = HashSet::new();
                 effects.insert(Effect::Named(op.name.clone()));
                 for a in args {
@@ -143,16 +143,14 @@ impl Default for EffectChecker {
 
 pub fn check_effects(program: Program) -> Result<Program, TypeError> {
     let mut checker = EffectChecker::new();
-    for item in &program.items {
-        if let TopLevelItem::Fn(f) = item {
-            if let Some(body) = &f.body {
-                checker.check_expr(&Box::new(ExprNode {
-                    kind: ExprKind::Block(body.clone()),
-                    span: f.span,
-                }));
-            }
+    crate::sema::visit_fns(&program.items, &mut |f| {
+        if let Some(body) = &f.body {
+            checker.check_expr(&Box::new(ExprNode {
+                kind: ExprKind::Block(body.clone()),
+                span: f.span,
+            }));
         }
-    }
+    });
     if !checker.errors.is_empty() {
         return Err(checker.errors.remove(0));
     }

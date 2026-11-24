@@ -36,7 +36,8 @@ struct Backend {
 struct DocumentState {
     /// The full document text as a rope (incremental-friendly).
     text: ropey::Rope,
-    /// Language ID (e.g., "seed").
+    /// Language ID (e.g., "seed"); retained for multi-language routing.
+    #[allow(dead_code)]
     language_id: String,
     /// Version counter for incremental sync.
     version: i32,
@@ -81,7 +82,7 @@ impl LanguageServer for Backend {
                 references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Right(RenameOptions {
                     prepare_provider: Some(true),
-                    ..Default::default()
+                    work_done_progress_options: Default::default(),
                 })),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 semantic_tokens_provider: Some(
@@ -111,7 +112,6 @@ impl LanguageServer for Backend {
                 ),
                 ..Default::default()
             },
-            ..Default::default()
         })
     }
 
@@ -188,7 +188,7 @@ impl LanguageServer for Backend {
 
         let line_idx = params.text_document_position.position.line as usize;
         let line = Self::get_line(&doc.text, line_idx);
-        let items = self.compute_completions(line);
+        let items = self.compute_completions(&line);
 
         Ok(Some(CompletionResponse::Array(items)))
     }
@@ -291,7 +291,7 @@ impl Backend {
                         end: Position::new(0, 0),
                     },
                     severity: Some(DiagnosticSeverity::ERROR),
-                    message: format!("{}", e),
+                    message: format!("{e}"),
                     ..Default::default()
                 }]
             }
@@ -418,8 +418,8 @@ impl Backend {
         ]);
 
         info.get(word)
-            .cloned()
-            .unwrap_or_else(|| format!("**{}** — no documentation available", word))
+            .map(|s| (*s).to_string())
+            .unwrap_or_else(|| format!("**{word}** — no documentation available"))
     }
 
     /// Get a line from a ropey document.
@@ -438,7 +438,7 @@ impl Backend {
         if col == 0
             || !chars
                 .get(col.saturating_sub(1))
-                .map_or(false, |c| c.is_alphanumeric() || *c == '_' || *c == '§')
+                .is_some_and(|c| c.is_alphanumeric() || *c == '_' || *c == '§')
         {
             return None;
         }

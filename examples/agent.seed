@@ -45,25 +45,17 @@ seed autonomous_researcher {
 }
 
 agent Researcher {
-    fn research(query: string) -> ResearchResult {
-        // Research pipeline: search → verify → synthesise
-        let findings = perform("search", query);
-
-        discharge findings {
-            confidence >= 0.9 => {
-                return synthesise(findings);
-            }
-            confidence >= 0.5 => {
-                return synthesise_with_caveats(findings);
-            }
-            else => {
-                return escalate_to_user(findings);
-            }
+    // Effects may only run inside a `discharge` gate that states the
+    // confidence, taint and budget thresholds under which it is safe to act.
+    fn research(query: string) -> string {
+        discharge query with { confidence: 0.9, taint: 0.2, budget: remaining } {
+            perform Effect::Search(query) requires cap::network_read
         }
     }
 
-    fn fact_check(claim: Claim) -> VerificationResult {
-        let sources = perform("source_lookup", claim);
-        verify_against_sources(claim, sources)
+    fn fact_check(claim: string) -> string {
+        discharge claim with { confidence: 0.5, taint: 0.3, budget: remaining } {
+            perform Effect::SourceLookup(claim) requires cap::network_read
+        }
     }
 }
