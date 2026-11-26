@@ -133,3 +133,57 @@ fn perform_inside_discharge_in_agent_method_is_accepted() {
     let p = parse_src(src).unwrap();
     sema::check(p).expect("well-formed");
 }
+
+// ── Lowering: lexical scoping ─────────────────────────────────────────
+
+fn load_local_slots(src: &str) -> Vec<usize> {
+    use seedc::ir::{Opcode, Operand};
+    let program = parse_src(src).expect("parse");
+    let module = seedc::lowering::lower(&program);
+    let mut slots = Vec::new();
+    for f in &module.functions {
+        for b in &f.blocks {
+            for i in &b.instrs {
+                if i.opcode == Opcode::LoadLocal {
+                    if let Some(Operand::Var(v)) = i.operands.first() {
+                        slots.push(*v);
+                    }
+                }
+            }
+        }
+    }
+    slots
+}
+
+#[test]
+fn inner_block_binding_shadows_and_does_not_leak() {
+    // inner `x` is a fresh slot (1); after the block `x` is the parameter (0)
+    let slots = load_local_slots("fn f(x: i32) -> i32 { { let x = 2; x }; x }");
+    assert_eq!(slots, vec![1, 0]);
+}
+
+#[test]
+fn let_binding_is_visible_after_declaration() {
+    // load of `a` allocates slot 1 for its result; `b` is then slot 2
+    let slots = load_local_slots("fn f(a: i32) -> i32 { let b = a; b }");
+    assert_eq!(slots, vec![0, 2]);
+}
+
+// ── Fail-closed gates ─────────────────────────────────────────────────
+
+#[test]
+fn multi_arm_discharge_is_rejected_not_miscompiled() {
+    let src = r#"agent A { fn go(x: i32) -> i32 {
+        discharge x { confidence >= 0.9 => { 1 } else => { 2 } }
+        0
+    } }"#;
+    let p = parse_src(src).unwrap();
+    let err = sema::check(p).expect_err("multi-arm discharge must be refused");
+    assert!(matches!(err, sema::TypeError::Unsupported { .. }));
+}
+
+#[test]
+fn core_keywords_are_reserved_as_names() {
+    assert!(parse_src("fn f() { let let = 1; }").is_err());
+    assert!(parse_src("fn if() { }").is_err());
+}

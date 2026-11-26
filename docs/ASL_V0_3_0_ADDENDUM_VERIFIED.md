@@ -136,15 +136,19 @@ Findings, all reproducible; fixes marked ✅ are in this patch.
    taint, tee, uncertainty` ≈ 1,100 lines) because `lib.rs` didn't declare them. Declared; two
    trivial compile errors fixed (a `sink_category::` typo ×3, missing `Hash` derive on `TeeBackend`).
    They contain **no tests** — they are now compiled but unverified.
-5. ✅ `compile()` wrote `ast_dump.txt` on every call. Now opt-in via `SEEDC_DUMP_AST=1`.
-6. ☐ `tests/cli.rs` and `tests/cmd/*.trycmd` sit at the workspace root where no package owns them — they never run.
+5. ✅ `compile()` wrote `ast_dump.txt` on every call. Now opt-in via the `debug-ast-dump` Cargo feature
+   (CP2; the earlier `SEEDC_DUMP_AST=1` env switch is gone). `ast_dump.txt` is git-ignored.
+6. ✅ `tests/cli.rs` and `tests/cmd/*.trycmd` sat at the workspace root where no package owns them and targeted a
+   `seedc` binary that no longer exists. Removed (CP3); replaced by `seedc-cli/tests/cli_smoke.rs`, a std-only
+   end-to-end suite (`--version`, examples check/run, missing file, unguarded `perform`, syntax error).
 7. ☐ The VM is a *stack machine* with SSA-style decoration: `dest` is ignored by the executor;
    `Opcode::Call` with a string operand prints a hard-coded `"Hello, Agent!"`; string literals all
    lower to `Operand::String(0)`; locals are sized from the first function. Decide (ADR-020) between
    a true stack IR (drop `dest`/SSA claims) or true SSA; today docs and code disagree.
-8. ☐ `compile.log`, `run.log`, `fullRepoMixSnapshot.xml` (1.5 MB) are tracked in git.
+8. ✅ `compile.log`, `run.log`, `fullRepoMixSnapshot.xml` (1.5 MB) and an empty `ASl_1_0_0_tasklisttolaunch` were tracked in git.
+   Removed (CP3); `*.log` and the snapshot are git-ignored.
 9. ☐ `#![allow(clippy::all)]` + `#![allow(unused)]` in `seedvm` hid items 1–4. Remove once warnings are triaged.
-10. ☐ Real surface syntax is the `seed name { §SECTION {…} }` document form; the spec's `agent X {…}`,
+10. ✅ (CP2, see spec draft Annex S) Real surface syntax is the `seed name { §SECTION {…} }` document form; the spec's `agent X {…}`,
     `discharge … with {…}`, `infer<T>(…)` EBNF is **not** what the parser accepts. Pick one and align spec ↔ parser.
 
 11. ✅ **`protocols/a2a.rs` deviated from A2A v1.0.0** (details in §7): v0.3 card path, invented states
@@ -175,7 +179,27 @@ Findings, all reproducible; fixes marked ✅ are in this patch.
 17. ☐ Still untested and unaudited: `uncertainty.rs`, `tee.rs`, `inference.rs`, `orchestrator.rs`. The doc
     comments in `taint.rs` cite "pyrograph", "Tant (Bertolo 2026)" and "zeptoclaw" — **unverified**.
 
-Test counts (this branch): seedc 20 · seedvm 154 · seedc-cli bin 7 → **181**, from a baseline of 17
+**CP2 / CP3 findings (this round).** ✅ = fixed in the patch that carries this text.
+18. ✅ **`=>` was never produced by the lexer** (`=` then `>`), so no `match` or `discharge` arm could parse.
+19. ✅ **Parse errors were swallowed**: `parse_program` printed them and returned `Ok`, so `seed check` passed broken
+    programs; recovery could also loop forever on a stray `}`.
+20. ✅ **`parse_block` tried `parse_top_level_item` on every statement** and fell back to an expression, so `let`
+    became an "item" the effect/taint/contract passes ignored; it also consumed tokens without backtracking.
+    Statements are now classified by lookahead.
+21. ✅ **Effect/taint/contract passes only visited top-level `fn`s** and skipped agent and `impl` methods — where agent
+    code lives. One shared visitor (`sema::visit_fns`) now covers all of them.
+22. ✅ **`discharge` discarded its thresholds** (hard-coded `1.0`) and the VM gated on the *upper* confidence bound;
+    `inside_discharge` was never cleared; taint/budget failures reused `LowConfidence` (ADR-028).
+23. ✅ **Multi-arm `discharge` lowered to "run every arm"** — now rejected as `Unsupported` (ADR-030).
+24. ✅ **Core keywords were accepted as identifiers** (`let let = 1` parsed) while domain keywords such as `query` could not
+    be names. Reversed (ADR-029).
+25. ✅ **Regression I introduced in CP2:** the CP2 overlay replaced this branch's `lowering.rs` (lexical scope stack) with a
+    flat name map, so inner-block bindings leaked. Block scoping restored and pinned by tests (CP3).
+26. ☐ **`typeck::infer_types` returns its input unchanged; `nameres` is a facade** (`let` binds `""`, errors dropped,
+    single pass); **`contractck` has one rule** (a `discharge` needs an arm) and no stratum/charter logic. See Arc42 §8.4.
+27. ✅ Unused dependencies removed from every manifest (cargo's `unused_dependencies` lint); `lsp-types` no longer
+    built twice (0.94 via `tower-lsp` and 0.95 directly). MSRV is declared once and inherited by every crate.
+Test counts (this branch, CP3): **206** (seedc 16 lib + 14 front-end · seedc-cli 7 unit + 6 smoke · seeddbg 4 · seedfmt 2 · seedvm 157), from a baseline of 17
 (one of which hung). `protocols/*` previously had **0** tests; `a2a.rs` now has 11 and `mcp.rs` 7.
 
 ---
@@ -207,9 +231,14 @@ Test counts (this branch): seedc 20 · seedvm 154 · seedc-cli bin 7 → **181**
 * **ADR-026 (new)** *Signed, verified capability tokens; delegation re-validated at issuance* — never trust a
   token's claimed lineage, re-derive that it narrows its parent.
 * **ADR-020 (proposed)** *IR execution model:* stack-IR vs SSA — decide and document.
+  **CP3 recommendation: register frames** (rationale and acceptance test in Arc42 draft §7).
+* **ADR-027 (new, CP2)** Seed documents and typed sections coexist; parser accepts the spec's `discharge … with` / `perform … requires` forms.
+* **ADR-028 (new, CP2)** Discharge gates fail closed on the lower confidence bound.
+* **ADR-029 (new, CP2)** Statement classification by lookahead; reserved core keywords, contextual domain keywords.
+* **ADR-030 (new, CP2/CP3)** Parse errors are fatal; constructs the back end cannot lower are `Unsupported` errors.
 
 ## 6. Next milestones (acceptance criteria)
-1. **Parser ↔ spec alignment** (ADR/decision first, then code). Accept: a source file using the chosen
+1. ✅ **Parser ↔ spec alignment** (done in CP2; see spec draft Annex S). Accept: a source file using the chosen
    `perform`/`discharge`/`infer` syntax parses; `effectck` rejects an undischarged `perform` *from
    source text*, not from a hand-built AST (the ignored test in the earlier tree must pass).
 2. **Tests for the seven revived modules** (≥ 1 behavioural test per public fn).
@@ -222,7 +251,7 @@ Test counts (this branch): seedc 20 · seedvm 154 · seedc-cli bin 7 → **181**
    `capability`/`taint` were: read against the spec, write attack/regression tests, mutation-check them.
 7. **Wire the new primitives into the executor/discharge path** (assurance check, enforced sinks, signed tokens);
    today they are libraries with no call sites.
-8. CI: dead-module guard (ADR-017), `cargo test --workspace --lib --tests`, clippy denied warnings.
+8. ✅ CI: dead-module guard (ADR-017) added, clippy denied warnings, examples smoke test, runs on every branch push (CP3).
 
 ---
 ## 7. Protocol bindings — verified facts (replaces spec §18 and §19 where they conflict)

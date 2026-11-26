@@ -1,4 +1,4 @@
-> **SUPERSEDED IN PART (2026-10-30).** This draft was written from search snippets and contains claims later found wrong (event lifecycle, TraceSpecAlgebra, CoMem promotion rule, zkComposer speedups, EU AI Act dates, "ETAS has no memory"). Read `docs/ASL_V0_3_0_ADDENDUM_VERIFIED.md` first; where they conflict, the addendum wins.
+> **SUPERSEDED IN PART (2026-10-30).** This draft was written from search snippets and contains claims later found wrong (event lifecycle, TraceSpecAlgebra, CoMem promotion rule, zkComposer speedups, EU AI Act dates, "ETAS has no memory"). Read `docs/ASL_V0_3_0_ADDENDUM_VERIFIED.md` first; where they conflict, the addendum wins. Implementation status as of CP3 is in §7 (ADR-027 – ADR-030, ADR-020 recommendation) and §8.3–§8.4 below; research context is in `docs/ASL_CP3_RESEARCH_NOTES.md`.
 
 # ARCHITECTURE BLUEPRINT — Agent-Seed Language Toolchain v0.3.0
 **Arc42 Format | seedc 16.0.0 + seedvm 6.0**  
@@ -145,7 +145,7 @@ Interface:     fn check_spec_blocks(typed: &TypedAST, oracle: OracleClient)
                Post: all spec<T> blocks have proof artifacts or build fails
 ```
 
-**[v0.3.0 AMENDMENT] sema::effectck — fully implemented (Phase 0 debt resolved)**
+**[v0.3.0 AMENDMENT] sema::effectck — TARGET DESIGN (implementation status: §8.3 / §8.4)**
 
 ```
 Responsibility: Enforce perform inside discharge. Forbid action-ops inside
@@ -154,7 +154,7 @@ Status:        MUST be implemented before v0.3.0 ships.
                Currently stubbed — this is the highest priority Phase 0 item.
 ```
 
-**[v0.3.0 AMENDMENT] sema::taintck — fully implemented**
+**[v0.3.0 AMENDMENT] sema::taintck — TARGET DESIGN (implementation status: §8.3 / §8.4)**
 
 ```
 Responsibility: 4D taint propagation (level + source + transform + causal + kind).
@@ -162,7 +162,7 @@ Responsibility: 4D taint propagation (level + source + transform + causal + kind
 Status:        Currently stubbed. Must implement before v0.3.0.
 ```
 
-**[v0.3.0 AMENDMENT] sema::contractck — fully implemented**
+**[v0.3.0 AMENDMENT] sema::contractck — TARGET DESIGN (implementation status: §8.3 / §8.4)**
 
 ```
 Responsibility: Stratum gating (all constructs). Charter bounds.
@@ -645,6 +645,68 @@ formulas for reachability properties.
 safety query latency drops from ~5ms (SMT) to ~0.1ms (Datalog) for
 reachability queries. Compiler routes to cheapest applicable engine.
 
+### ADR-020 — IR Execution Model: Register Frames [CP3 RECOMMENDATION]
+**Status:** Proposed (decision needed before any VM or lowering work)  
+**Context:** The compiler emits SSA-style IR (`dest` variables, `Var` operands) and the
+IR verifier (ADR-018) reasons about per-function slots, but the executor is a pure stack
+machine: it ignores `dest`, treats a `Var` operand as its numeric index, and `Call` with a
+string operand prints a hard-coded greeting. Straight-line arithmetic works only because
+operands happen to be pushed in order. Variables, user calls and branching are unsound.  
+**Options:** (A) *Register frames* — each call frame owns `regs[0..max_locals]`; every
+instruction reads its operands (immediates or `regs[v]`) and writes `dest`. (B) *True stack
+IR* — drop `dest`/SSA, make lowering emit postfix code, rewrite the verifier around stack
+depth.  
+**Recommendation:** **A.** Lowering, `max_locals` and the verifier already speak in slots,
+so A changes only the executor plus a string pool; B changes the compiler, the verifier
+and the executor. Register machines also avoid the operand-ordering bug class that
+caused this mismatch. (Lua 5's move to a register VM is the usual precedent; confirm the
+citation before using it in a paper.)  
+**Acceptance:** `fn f(a,b){let c=a+b; c*c}` runs correctly; a user function call returns a
+value; string literals round-trip through a pool (no `String(0)`); `print` is a real
+builtin; the hard-coded greeting is gone.  
+**Consequences:** Executor rewrite (the dispatch loop and ~50 opcode handlers); `.aslb`
+format version bump (ADR-001) for the string pool.
+
+### ADR-027 — Seed Documents and Typed Sections Coexist [CP2]
+**Status:** Accepted  
+**Context:** The spec's `agent` / `discharge … with` syntax and the real `seed name { §SECTION {…} }`
+document form had diverged (addendum §4 item 10).  
+**Decision:** `seed` bodies accept both free-form `§NAME { key: value }` blocks (data) and typed
+`section` declarations; the parser accepts the spec's `discharge … with` and
+`perform Effect::X(..) requires cap::Y` forms. Annex S of the spec draft is the grammar.  
+**Consequences:** One parser serves both documents and programs; seed blocks are kept in the AST
+(`SeedDecl.blocks`) but not yet consumed by the VM.
+
+### ADR-028 — Discharge Gates Fail Closed on the Lower Bound [CP2]
+**Status:** Accepted  
+**Context:** `Discharge` and `ConfidenceGate` compared the *upper* bound of the confidence
+interval (the optimistic end), `inside_discharge` was never cleared, taint/budget failures
+reused `LowConfidence`, and the parser discarded every threshold.  
+**Decision:** Gate on the lower bound; an unstated confidence lowers to 1.0 and taint to 0.0;
+thresholds travel as instruction operands; `DischargeEnd` closes the scope; `TaintExceeded` and
+`BudgetExceeded` are distinct errors.  
+**Consequences:** Programs that relied on optimistic gating now fail loudly. Calibration of the
+interval itself is a separate problem (see `docs/ASL_CP3_RESEARCH_NOTES.md` P1).
+
+### ADR-029 — Statement Classification by Lookahead; Contextual Keywords [CP2]
+**Status:** Accepted  
+**Context:** `parse_block` tried `parse_top_level_item` on every statement and fell back to an
+expression, so `let` became an "item" the semantic passes ignored; tokens were consumed with no
+backtracking; core keywords were accepted as identifiers; domain keywords (`query`) could not be names.  
+**Decision:** Classify by lookahead; core keywords are reserved, domain keywords contextual;
+block-like expressions end a statement without `;`; the effect/taint/contract passes visit every
+function body through one shared visitor (`sema::visit_fns`).  
+**Consequences:** Effect rules now apply to agent methods, which is where agent code lives.
+
+### ADR-030 — Parse Errors Are Fatal, Unsupported Constructs Are Errors [CP2/CP3]
+**Status:** Accepted  
+**Context:** `parse_program` printed errors and returned `Ok`; multi-arm `discharge` lowered to
+"run every arm".  
+**Decision:** Any parse error rejects the program (first error returned, recovery only to find
+more). A construct the back end cannot lower correctly is rejected in `sema` as `Unsupported`
+rather than miscompiled (extends ADR-024).  
+**Consequences:** Some previously "working" examples now fail until the feature is real.
+
 ---
 
 ## 8. QUALITY REQUIREMENTS & RISKS
@@ -672,19 +734,48 @@ reachability queries. Compiler routes to cheapest applicable engine.
 | SessionHandle affine tracking memory overhead | Low | One handle table entry per spawned agent |
 | CoMem slows federation convergence | Low-Medium | Configurable threshold; can set to 1 for fast networks |
 
-### 8.3 Phase 0 Priority (MUST complete before v0.3.0 features)
+### 8.3 Phase 0 Priority — status at CP3
 
-The following must be done first, in order:
+| # | Item | Status |
+|---|------|--------|
+| 1 | `sema::effectck` enforced | ✅ rule enforced from source text, in every function body (CP2) |
+| 2 | `sema::taintck` 4D propagation | ◐ pass runs over all bodies; `taint.rs` library audited; not wired into the executor |
+| 3 | `sema::contractck` stratum gating | ◐ runs over all bodies but has **one rule** (a `discharge` needs an arm); **no stratum or charter checks exist** |
+| 4 | Hanging stdin test | ✅ |
+| 5 | Broken scaffold crates | ✅ all four build, lint clean, in the workspace (CP2); manifests trimmed of unused deps (CP3) |
+| 6 | `clippy::unwrap_used` in library code | ◐ `clippy -D warnings` clean on the workspace; blanket `allow(unused)` / `allow(clippy::all)` remain in `seedc` / `seedvm` |
+| 7 | Test baseline | ✅ 17 → 206 tests (CP3), plus an end-to-end CLI smoke suite |
+| 8 | Dead-module guard (ADR-017) | ✅ script in CI (CP3) |
+| 9 | Orphaned root `tests/` | ✅ replaced by `seedc-cli/tests/cli_smoke.rs` (CP3) |
 
-1. Fix `sema::effectck` — implement full effect enforcement (not stub)
-2. Fix `sema::taintck` — implement 4D taint propagation
-3. Fix `sema::contractck` — implement stratum gating and charter bounds
-4. Fix hanging stdin test (`test_read_source_stdin`)
-5. Fix or remove broken scaffold crates (seedpkg, seedls, seedfmt, seeddbg)
-6. Fix all `clippy::unwrap_used` violations in library code
-7. Achieve 100% pass rate on existing 17 tests + add 50 basic tests
+### 8.4 Reality Register (CP3) — what is *not* real yet
 
-Then begin v0.3.0 feature work in the priority order from the Research Report (§8).
+| Claim in the drafts | Reality |
+|---|---|
+| "Hindley–Milner type inference" | `infer_types` returns its input unchanged |
+| "name resolution" | `let` binds the name `""`; errors are discarded; single pass |
+| "SSA IR / VM executes it" | VM is a stack machine ignoring `dest` (ADR-020) |
+| "user function calls" | `Call` is a stub |
+| "constants / strings" | every string literal lowers to `String(0)` |
+| "stratum gating, charter bounds (contractck)" | one rule only: a `discharge` needs an arm |
+| "multi-arm discharge" | rejected as `Unsupported` |
+| "`budget` / `requires` gates" | parsed, not lowered / not enforced |
+| "capability, taint, trace, bi-temporal, datalog" | tested libraries with no call site in the executor |
+| "formatter is CST-based" | line-based |
+| "debugger" | protocol skeleton |
+| "package manager" | resolver exists, unwired; no download/verify/extract |
+
+Rule: the drafts may keep their *target* text, but any release note, README or paper must
+quote this table, not the target text.
+
+### 8.5 CP3 plan (next code checkpoint, in order)
+1. **Decide ADR-020**, then implement register frames + string pool + real `print`/`Call`.
+2. Real two-pass `nameres` (collect, then resolve; bind pattern names; surface errors).
+3. Wire `infer_types` into `sema::check`, starting with the simple monomorphic cases.
+4. Lower multi-arm `discharge` with a `ConfidenceGe` branch; lower `budget:`.
+5. Enforce `requires cap::X` through `capability.rs`.
+6. Remove the blanket `allow` attributes and triage what they hide.
+7. Audit the dormant modules (`uncertainty`, `tee`, `inference`, `orchestrator`) as `capability` and `taint` were.
 
 ---
 

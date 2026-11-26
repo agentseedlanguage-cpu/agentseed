@@ -62,6 +62,14 @@ pub enum TypeError {
         span: SourceSpan,
     },
 
+    #[error("unsupported construct")]
+    #[diagnostic(help("{message}"))]
+    Unsupported {
+        message: String,
+        #[label("not supported yet")]
+        span: SourceSpan,
+    },
+
     #[error(transparent)]
     Other(#[from] Box<dyn Diagnostic + Send + Sync + 'static>),
 }

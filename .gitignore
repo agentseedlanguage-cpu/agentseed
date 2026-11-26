@@ -2,3 +2,5 @@
 **/*.rs.bk
 *.aslb
 ast_dump.txt
+*.log
+fullRepoMixSnapshot.xml

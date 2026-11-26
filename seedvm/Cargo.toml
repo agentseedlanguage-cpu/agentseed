@@ -2,6 +2,7 @@
 name = "seedvm"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "AGENT-SEED v15.2 virtual machine — deterministic bytecode interpreter"
 
 [[bin]]
@@ -25,6 +26,5 @@ ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
-im = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }

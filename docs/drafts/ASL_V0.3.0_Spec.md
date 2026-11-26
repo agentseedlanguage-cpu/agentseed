@@ -1661,5 +1661,108 @@ command = "seed test --conformance --level 6"
 
 ---
 
+## Annex S — Surface Syntax and Gate Semantics as Implemented (CP2/CP3)
+
+> **Status:** describes what `seedc` / `seedvm` accept and enforce **today**. Where the
+> body of this draft and Annex S differ, Annex S is the implemented truth and the body
+> is the target. Each rule names the tests that pin it.
+
+### S.1 Lexical additions
+* `§` followed by `[A-Za-z0-9_-]*` is one `SectionMarker` token (`§IDENTITY-ANCHOR`).
+* `=>` is one `FatArrow` token (it was previously lexed as `=` `>`).
+* Each token records whether a line break precedes it. The only grammar that
+  uses this is the seed-document scalar rule (S.2).
+* **Reserved vs contextual words.** Core keywords (`let`, `fn`, `if`, `match`, `while`, …)
+  are reserved and cannot be names. Domain keywords (`query`, `memory`, `tick`, …) are
+  *contextual*: they are ordinary identifiers in name and expression position.
+  Tests: `domain_keywords_are_contextual_identifiers`, `core_keywords_are_reserved_as_names`.
+
+### S.2 Seed documents
+```
+seed_decl   ::= "seed" IDENT "{" { seed_block | section_decl } "}"
+seed_block  ::= SECTION_MARKER "{" { seed_entry [ "," ] } "}"
+seed_entry  ::= key ":" seed_value
+key         ::= tokens with no whitespace between them, up to ":"   (personality-traits, L1-WORKING)
+seed_value  ::= map | list | scalar
+map         ::= "{" { seed_entry [ "," ] } "}"
+list        ::= "[" [ seed_value { "," seed_value } ] "]"
+scalar      ::= tokens up to "," "}" "]" or the end of the line
+```
+A scalar is classified as `Str` (one string literal), `Num` (one numeric literal),
+`Bool` (`true`/`false`), or `Bare` (everything else, kept verbatim, e.g. `30s`,
+`O:0.9 C:0.8`). Two entries on one line **must** be comma-separated.
+Typed `section Name { field: Type; }` declarations remain valid inside `seed`.
+Tests: `seed_blocks_parse_with_values`.
+
+### S.3 Blocks and statements
+```
+block ::= "{" { stmt } [ expr ] "}"
+stmt  ::= item | let_stmt | return_stmt | expr ";" | block_like_expr
+```
+* A statement is classified by **lookahead only** (item keyword → item, `let` → let,
+  otherwise expression); no tokens are consumed to "try" a parse.
+* `if`, `match`, `loop`, `while`, `for`, a bare block and `discharge` are *block-like*:
+  they end a statement without `;` unless they are the last expression, which is the
+  block's value.
+* **Parse errors are fatal.** The parser may recover to report more than one problem,
+  but a program with any syntax error is rejected (the first error is returned) and
+  recovery always makes forward progress. Tests: `parse_errors_are_not_swallowed`,
+  `stray_close_brace_terminates`.
+
+### S.4 `discharge`
+```
+discharge_expr ::= "discharge" expr "with" "{" threshold { "," threshold } "}" block      -- spec form
+                 | "discharge" expr "{" arm { [","] arm } "}"                             -- arm form
+threshold      ::= ("confidence" | "taint" | "budget") ":" value
+arm            ::= ( expr | "else" ) "=>" block
+```
+* **Fail-closed thresholds.** `confidence` is compared with the **lower bound** of the
+  value's uncertainty interval, never the upper bound. An unstated `confidence` lowers
+  to `1.0` and an unstated `taint` limit to `0.0`; an omitted threshold can only make
+  the gate stricter. (ADR-028; tests `test_gate_uses_lower_bound`,
+  `discharge_with_form_keeps_thresholds`.)
+* **Distinct failures.** A refused gate reports `LowConfidence`, `TaintExceeded` or
+  `BudgetExceeded`; they are different errors. (`test_taint_and_budget_have_distinct_errors`.)
+* **Scope.** A successful `Discharge` opens a scope (depth + 1) and the compiler emits
+  `DischargeEnd` after the body (depth − 1). `perform` is legal only at depth > 0.
+  (`test_perform_after_discharge_end_fails`.)
+* **Arm form.** Arms and their numeric thresholds are parsed and kept in the AST. A
+  discharge with **more than one arm is rejected** by `effectck` as `Unsupported`,
+  because lowering cannot yet branch on runtime confidence; silently running every arm
+  would be a miscompile. (`multi_arm_discharge_is_rejected_not_miscompiled`.)
+* **`budget`.** Parsed and retained as written; **not yet lowered** — the VM enforces
+  its own global budget. *Known gap.*
+
+### S.5 `perform`
+```
+perform_expr ::= "perform" path "(" [ args ] ")" [ "requires" path ]      -- path form: Effect::NetworkCall(url)
+               | "perform" "(" STRING { "," expr } ")"                    -- call form:  perform("search", q)
+```
+`perform` outside a `discharge` is a compile-time `UndischargedEffect` error in
+**every** function body — free functions, agent methods and `impl` methods.
+The `requires` path is retained in the AST; **it is not enforced yet** (needs the
+capability module wired in, CP3 milestone). Tests:
+`perform_outside_discharge_in_agent_method_is_rejected`,
+`perform_inside_discharge_in_agent_method_is_accepted`, `perform_path_form_records_capability`.
+
+### S.6 Name binding
+Each block is its own lexical scope. A `let` binding shadows an outer one inside the
+block and is not visible after it; function parameters live in the outermost scope.
+Tests: `inner_block_binding_shadows_and_does_not_leak`, `let_binding_is_visible_after_declaration`.
+
+### S.7 Known gaps (as of CP3)
+| Area | Today | Tracked by |
+|---|---|---|
+| IR execution | compiler emits SSA-style IR; VM is a stack machine that ignores `dest`; user `Call` is a stub | ADR-020 |
+| Constants | all string literals lower to `String(0)`; no string pool | ADR-020 |
+| `typeck::infer_types` | returns its input unchanged | CP3 |
+| `nameres` | not a resolver (`let` binds `""`, errors dropped, single pass) | CP3 |
+| multi-arm `discharge` | rejected | CP3 |
+| `budget:` / `requires` | parsed, not enforced | CP3 |
+| formatter | line-based, not a CST | Phase F8 |
+| debugger | protocol skeleton, no stepping | Phase F10 |
+
+---
+
 *ASL-SPEC-0.3.0 — End of Document*  
 *Next step: Arc42 Blueprint v0.3.0 → then seedc / seedvm implementation*

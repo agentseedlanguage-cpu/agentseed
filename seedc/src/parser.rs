@@ -1401,9 +1401,9 @@ impl<'a> Parser<'a> {
         let t = self.advance();
         if t.kind == TokenKind::Ident
             || t.kind == TokenKind::KwSelf
-            // Core (S0) keywords and domain keywords are both accepted here;
-            // domain keywords (query, memory, tick, ...) are contextual.
-            || (t.kind as u8 >= TokenKind::KwAgent as u8
+            // Core (S0) keywords are reserved. Domain keywords (query,
+            // memory, tick, ...) are contextual and usable as names.
+            || (t.kind as u8 > TokenKind::KwWhile as u8
                 && t.kind as u8 <= TokenKind::KwZkvm as u8)
         {
             Ok(Ident {

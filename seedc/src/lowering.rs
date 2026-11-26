@@ -18,7 +18,7 @@ struct Lowerer {
     module: Module,
     current_func: Option<FuncId>,
     /// Name → IR local slot for the function currently being lowered.
-    locals: HashMap<String, VarId>,
+    scopes: Vec<HashMap<String, VarId>>,
 }
 
 impl Lowerer {
@@ -26,7 +26,7 @@ impl Lowerer {
         Self {
             module: Module::new(),
             current_func: None,
-            locals: HashMap::new(),
+            scopes: Vec::new(),
         }
     }
 
@@ -68,9 +68,10 @@ impl Lowerer {
         let func = Function::new(f.name.name.clone(), (0..f.params.len()).collect(), ret_ty);
         let fid = self.module.add_function(func);
         self.current_func = Some(fid);
-        self.locals.clear();
+        self.scopes.clear();
+        self.scopes.push(HashMap::new());
         for (slot, p) in f.params.iter().enumerate() {
-            self.locals.insert(p.name.name.clone(), slot);
+            self.bind(&p.name.name, slot);
         }
         if let Some(body) = &f.body {
             let entry = self.module.functions[fid].entry;
@@ -84,7 +85,24 @@ impl Lowerer {
         self.current_func = None;
     }
 
+    /// Bind `name` to `slot` in the innermost lexical scope (shadows outer).
+    fn bind(&mut self, name: &str, slot: VarId) {
+        if self.scopes.is_empty() {
+            self.scopes.push(HashMap::new());
+        }
+        if let Some(inner) = self.scopes.last_mut() {
+            inner.insert(name.to_string(), slot);
+        }
+    }
+
+    /// Resolve `name` innermost-first.
+    fn lookup(&self, name: &str) -> Option<VarId> {
+        self.scopes.iter().rev().find_map(|s| s.get(name).copied())
+    }
+
     fn lower_block(&mut self, block: &BlockExpr, blk: BlockId) -> Option<Operand> {
+        // Every block is its own lexical scope: bindings do not leak out.
+        self.scopes.push(HashMap::new());
         let mut last_val = None;
         for stmt in &block.stmts {
             last_val = self.lower_stmt(stmt, blk);
@@ -92,6 +110,7 @@ impl Lowerer {
         if let Some(e) = &block.last {
             last_val = Some(self.lower_expr(e, blk));
         }
+        self.scopes.pop();
         last_val
     }
 
@@ -106,7 +125,7 @@ impl Lowerer {
                     Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(var), val]),
                 );
                 if let PatternKind::Binding(id, _) = &l.pattern.kind {
-                    self.locals.insert(id.name.clone(), var);
+                    self.bind(&id.name, var);
                 }
                 Some(Operand::Var(var))
             }
@@ -578,7 +597,7 @@ impl Lowerer {
     /// Resolve an identifier to its local slot and load it.
     /// Unknown names (globals, builtins resolved later) lower to `Null`.
     fn lower_ident(&mut self, ident: &Ident, blk: BlockId) -> Operand {
-        match self.locals.get(&ident.name).copied() {
+        match self.lookup(&ident.name) {
             Some(slot) => {
                 let func = self.func();
                 let dest = func.new_var();

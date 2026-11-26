@@ -38,6 +38,18 @@ impl EffectChecker {
                 effects
             }
             ExprKind::Discharge(scrutinee, thresholds) => {
+                // Fail closed (ADR-024): arm-form discharge with several arms
+                // needs branching on the runtime confidence, which lowering
+                // does not implement yet. Refuse it instead of miscompiling
+                // (it would otherwise run every arm).
+                if thresholds.len() > 1 {
+                    self.errors.push(TypeError::Unsupported {
+                        message: "multi-arm `discharge` is not supported yet; use the \
+                                  `discharge e with { confidence: .., taint: .. } { .. }` form"
+                            .into(),
+                        span: expr.span,
+                    });
+                }
                 self.check_expr(scrutinee);
                 let prev = self.inside_discharge;
                 self.inside_discharge = true;

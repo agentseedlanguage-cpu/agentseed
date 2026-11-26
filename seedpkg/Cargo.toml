@@ -2,6 +2,7 @@
 name = "seedpkg"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "AGENT-SEED v15.2 package manager — install, publish, and manage ASL dependencies"
 
 [[bin]]
@@ -19,11 +20,3 @@ toml = { workspace = true }
 semver = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
-ed25519-dalek = { workspace = true }
-blake3 = { workspace = true }
-hex = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
-chrono = { workspace = true }
-tempfile = "3"
-flate2 = "1.0"
-tar = "0.4"
