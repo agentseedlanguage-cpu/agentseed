@@ -16,6 +16,8 @@ pub struct Module {
     pub functions: Vec<Function>,
     pub globals: Vec<GlobalDecl>,
     pub exports: Vec<(String, FuncId)>,
+    /// String pool: `Operand::String(i)` refers to `strings[i]` (ADR-020).
+    pub strings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +98,15 @@ pub enum Opcode {
     Nop,
     /// Closes the innermost `Discharge` scope.
     DischargeEnd,
+    /// `print` built-in: writes its operands, space-separated, plus a newline.
+    Print,
+    /// Aborts execution with the message in `operands[0]` (string pool index).
+    Trap,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,12 +219,48 @@ impl Module {
             functions: vec![],
             globals: vec![],
             exports: vec![],
+            strings: vec![],
         }
     }
     pub fn add_function(&mut self, f: Function) -> FuncId {
         let id = self.functions.len();
         self.functions.push(f);
         id
+    }
+
+    /// Add `s` to the string pool (deduplicated) and return its index.
+    pub fn intern(&mut self, s: &str) -> usize {
+        if let Some(i) = self.strings.iter().position(|x| x == s) {
+            return i;
+        }
+        self.strings.push(s.to_string());
+        self.strings.len() - 1
+    }
+
+    /// Look up a pooled string.
+    pub fn string(&self, idx: usize) -> Option<&str> {
+        self.strings.get(idx).map(String::as_str)
+    }
+
+    /// Find a function by name.
+    pub fn find_function(&self, name: &str) -> Option<FuncId> {
+        self.functions.iter().position(|f| f.name == name)
+    }
+
+    /// The function execution starts in: `main`, else an agent's `Agent::main`,
+    /// else the first function.
+    pub fn entry_function(&self) -> Option<FuncId> {
+        self.find_function("main")
+            .or_else(|| {
+                self.functions
+                    .iter()
+                    .position(|f| f.name.ends_with("::main"))
+            })
+            .or(if self.functions.is_empty() {
+                None
+            } else {
+                Some(0)
+            })
     }
 }
 

@@ -14,7 +14,9 @@ use crate::sema::types::*;
 use crate::sema::TypeError;
 use std::collections::{HashMap, HashSet};
 
-/// The type inference engine.
+/// The type inference engine. Dormant: `infer_types` does not call it yet
+/// (Arc42 §8.5, CP5), so its unused parts are allowed explicitly.
+#[allow(dead_code)]
 pub struct Inferencer {
     /// Current type environment.
     env: TypeEnv,
@@ -187,6 +189,7 @@ impl Inferencer {
         }
     }
 
+    #[allow(dead_code)]
     fn instantiate(&mut self, scheme: &Ty) -> Ty {
         match scheme {
             Ty::Scheme(vars, body) => {
@@ -200,6 +203,7 @@ impl Inferencer {
         }
     }
 
+    #[allow(dead_code)]
     fn instantiate_with(subst: &HashMap<usize, Ty>, ty: &Ty) -> Ty {
         match ty {
             Ty::Var(v) => subst.get(v).cloned().unwrap_or(ty.clone()),

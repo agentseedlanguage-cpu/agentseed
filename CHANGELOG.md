@@ -1,5 +1,25 @@
 # Changelog
 
+## Checkpoint 4
+
+### Added
+- **Register-frame VM (ADR-020 accepted):** per-call frames, real `Call`/recursion, string pool (`.aslb` 15.3), `Print`, `Trap`,
+  bitwise opcodes, bounded call depth and step fuel; discharge authority is per frame.
+- **Cursor-based lowering** with real `if`/`while`/`loop`/`for a..b`/`break value`/`continue`/short-circuit `&&` `||`/`match`
+  (literals, `_`, names, guards), assignment and compound assignment; unresolved names and unsupported constructs are compile errors.
+- **Dataflow IR verifier** (definite assignment, discharge depth at joins, operand/arity/range checks); `.aslb` is verified before run.
+- Parser: assignment, compound assignment, ranges, bitwise operators, `continue`, `break value`.
+- 23 end-to-end program tests (`seedvm/tests/programs.rs`); **252 tests total**.
+
+### Fixed
+- Lexer: `<<`/`>>`/`<<=`, `..` vs `..=`, `0..5`, `&=`, `|=`.
+- `nameres` rewritten (two-pass, pattern binding, agent methods, builtins); fake "affine" rule removed.
+- `binary.rs` header length is an explicit constant; older `.aslb` minors are rejected.
+- Blanket `allow(unused)`/`allow(dead_code)` removed from `seedc`.
+
+### Known gaps
+- No type checking yet (`infer_types` is a no-op). See Arc42 §8.4 and §8.5 (CP5 plan).
+
 ## Checkpoint 3
 
 ### Fixed

@@ -677,8 +677,53 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Expression entry point. Precedence, loosest first:
+    /// assignment (right-assoc) < range < `||` < `&&` < comparison < `|` < `^`
+    /// < `&` < shifts < `+ -` < `* / %` < unary.
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
-        self.parse_pratt(0)
+        self.parse_assignment()
+    }
+
+    fn parse_assignment(&mut self) -> Result<Expr, ParseError> {
+        let start = self.pos;
+        let lhs = self.parse_range()?;
+        let op = match self.peek_kind() {
+            Some(TokenKind::Eq) => AssignOp::Eq,
+            Some(TokenKind::PlusEq) => AssignOp::PlusEq,
+            Some(TokenKind::MinusEq) => AssignOp::MinusEq,
+            Some(TokenKind::StarEq) => AssignOp::StarEq,
+            Some(TokenKind::SlashEq) => AssignOp::SlashEq,
+            Some(TokenKind::PercentEq) => AssignOp::PercentEq,
+            Some(TokenKind::AndEq) => AssignOp::AndEq,
+            Some(TokenKind::OrEq) => AssignOp::OrEq,
+            Some(TokenKind::CaretEq) => AssignOp::XorEq,
+            Some(TokenKind::ShlEq) => AssignOp::ShlEq,
+            Some(TokenKind::ShrEq) => AssignOp::ShrEq,
+            _ => return Ok(lhs),
+        };
+        self.advance();
+        let rhs = self.parse_assignment()?;
+        Ok(Box::new(ExprNode {
+            kind: ExprKind::Assignment(lhs, op, rhs),
+            span: self.span_from(start),
+        }))
+    }
+
+    /// `a..b` and `a..=b` (both bounds required).
+    fn parse_range(&mut self) -> Result<Expr, ParseError> {
+        let start = self.pos;
+        let lhs = self.parse_pratt(0)?;
+        let kind = match self.peek_kind() {
+            Some(TokenKind::DotDot) => RangeKind::Exclusive,
+            Some(TokenKind::DotDotEq) => RangeKind::Inclusive,
+            _ => return Ok(lhs),
+        };
+        self.advance();
+        let rhs = self.parse_pratt(0)?;
+        Ok(Box::new(ExprNode {
+            kind: ExprKind::Range(lhs, kind, rhs),
+            span: self.span_from(start),
+        }))
     }
 
     fn parse_pratt(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
@@ -697,6 +742,11 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::Gt) if min_bp <= 50 => BinaryOp::Gt,
                 Some(TokenKind::LtEq) if min_bp <= 50 => BinaryOp::LtEq,
                 Some(TokenKind::GtEq) if min_bp <= 50 => BinaryOp::GtEq,
+                Some(TokenKind::Pipe) if min_bp <= 52 => BinaryOp::BitOr,
+                Some(TokenKind::Caret) if min_bp <= 54 => BinaryOp::BitXor,
+                Some(TokenKind::And) if min_bp <= 56 => BinaryOp::BitAnd,
+                Some(TokenKind::Shl) if min_bp <= 58 => BinaryOp::Shl,
+                Some(TokenKind::Shr) if min_bp <= 58 => BinaryOp::Shr,
                 Some(TokenKind::AndAnd) if min_bp <= 40 => BinaryOp::And,
                 Some(TokenKind::OrOr) if min_bp <= 30 => BinaryOp::Or,
                 Some(TokenKind::PipeGt) if min_bp <= 10 => {
@@ -734,9 +784,12 @@ impl<'a> Parser<'a> {
             | BinaryOp::Gt
             | BinaryOp::LtEq
             | BinaryOp::GtEq => (50, 51),
+            BinaryOp::BitOr => (52, 53),
+            BinaryOp::BitXor => (54, 55),
+            BinaryOp::BitAnd => (56, 57),
+            BinaryOp::Shl | BinaryOp::Shr => (58, 59),
             BinaryOp::And => (40, 41),
             BinaryOp::Or => (30, 31),
-            _ => (0, 0),
         }
     }
 
@@ -864,7 +917,10 @@ impl<'a> Parser<'a> {
             })),
             TokenKind::KwReturn => {
                 self.advance();
-                let e = if self.at(TokenKind::Semicolon) {
+                let e = if matches!(
+                    self.peek_kind(),
+                    Some(TokenKind::Semicolon | TokenKind::RBrace) | None
+                ) {
                     None
                 } else {
                     Some(self.parse_expr()?)
@@ -876,8 +932,24 @@ impl<'a> Parser<'a> {
             }
             TokenKind::KwBreak => {
                 self.advance();
+                // `break;` / `break }` carry no value; otherwise `break <expr>`.
+                let e = if matches!(
+                    self.peek_kind(),
+                    Some(TokenKind::Semicolon | TokenKind::RBrace) | None
+                ) {
+                    None
+                } else {
+                    Some(self.parse_expr()?)
+                };
                 Ok(Box::new(ExprNode {
-                    kind: ExprKind::Break(None),
+                    kind: ExprKind::Break(e),
+                    span: self.span_from(start),
+                }))
+            }
+            TokenKind::KwContinue => {
+                self.advance();
+                Ok(Box::new(ExprNode {
+                    kind: ExprKind::Continue,
                     span: self.span_from(start),
                 }))
             }
@@ -1276,7 +1348,10 @@ impl<'a> Parser<'a> {
         } else {
             Some(self.parse_expr()?)
         };
-        self.expect(TokenKind::Semicolon)?;
+        // The `;` may be omitted before the closing brace of the block.
+        if !self.at(TokenKind::RBrace) {
+            self.expect(TokenKind::Semicolon)?;
+        }
         Ok(Stmt::Return(ReturnStmt {
             expr: e,
             span: self.span_from(start),

@@ -76,3 +76,33 @@ fn check_rejects_syntax_errors() {
     let o = seed(&["check", f.to_str().expect("utf8 path")]);
     assert!(!o.status.success());
 }
+
+#[test]
+fn run_executes_a_real_program_and_prints_its_output() {
+    let dir = std::env::temp_dir().join("seed_cli_smoke");
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let f = dir.join("fact.seed");
+    std::fs::write(
+        &f,
+        "fn fact(n: i64) -> i64 { if n <= 1 { 1 } else { n * fact(n - 1) } }\n\
+         fn main() { print(\"fact(10) =\", fact(10)); }\n",
+    )
+    .expect("write");
+    let o = seed(&["run", f.to_str().expect("utf8 path")]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(
+        stdout(&o).contains("fact(10) = 3628800"),
+        "got: {}",
+        stdout(&o)
+    );
+}
+
+#[test]
+fn check_rejects_unresolved_names() {
+    let dir = std::env::temp_dir().join("seed_cli_smoke");
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let f = dir.join("unresolved.seed");
+    std::fs::write(&f, "fn main() -> i64 { missing_variable }").expect("write");
+    let o = seed(&["check", f.to_str().expect("utf8 path")]);
+    assert!(!o.status.success());
+}

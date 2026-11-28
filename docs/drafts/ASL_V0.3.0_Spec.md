@@ -1661,7 +1661,7 @@ command = "seed test --conformance --level 6"
 
 ---
 
-## Annex S — Surface Syntax and Gate Semantics as Implemented (CP2/CP3)
+## Annex S — Surface Syntax, Gate Semantics and Execution Model as Implemented (CP2–CP4)
 
 > **Status:** describes what `seedc` / `seedvm` accept and enforce **today**. Where the
 > body of this draft and Annex S differ, Annex S is the implemented truth and the body
@@ -1746,19 +1746,39 @@ capability module wired in, CP3 milestone). Tests:
 `perform_inside_discharge_in_agent_method_is_accepted`, `perform_path_form_records_capability`.
 
 ### S.6 Name binding
-Each block is its own lexical scope. A `let` binding shadows an outer one inside the
+Names are resolved in two passes (declare all top-level items, then resolve bodies), so functions may be used before their definition. Each block is its own lexical scope. A `let` binding shadows an outer one inside the
 block and is not visible after it; function parameters live in the outermost scope.
 Tests: `inner_block_binding_shadows_and_does_not_leak`, `let_binding_is_visible_after_declaration`.
 
-### S.7 Known gaps (as of CP3)
+### S.7 Expressions, control flow and the execution model (CP4)
+* **Operators (loosest first):** assignment (`=`, `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`; right-associative) <
+  range (`a..b`, `a..=b`, both bounds required) < `||` < `&&` < comparison < `|` < `^` < `&` < `<< >>` < `+ -` < `* / %` < unary.
+  `&&` and `||` short-circuit and yield a bool. Integer arithmetic wraps; integer division or remainder by zero is a run-time
+  error. Tests: `shifts_ranges_and_compound_assignment_lex_correctly`, `logical_operators_short_circuit`, `bitwise_and_shift_operators`.
+* **`if` is an expression**; code after it runs after the merge. `while`, `loop` (`break value`), and `for i in a..b` /
+  `a..=b` (the loop variable is a per-iteration copy) are supported; `break`/`continue` close any `discharge` scopes opened
+  inside the loop before jumping. Other iterables are rejected.
+* **`match`** supports literal, `_` and identifier patterns with optional guards; a match with no catch-all that fails to
+  match **traps** at run time (`non-exhaustive match`).
+* **Calls:** free functions resolve through a table built before bodies are lowered (forward references and recursion work);
+  arity is checked at compile time. `print(args..)` is a built-in. Agent methods are named `Agent::method`; an `Agent::main`
+  (or `main`) is the entry point.
+* **Execution model (ADR-020):** one frame of registers per call; `discharge` depth is per frame; call depth and step count are
+  bounded; the module is verified (definite assignment, discharge depth at every join, operand/arity/range checks) before
+  execution; effect names and string constants come from the module string pool.
+* **Fail closed:** unresolved names or functions, wrong argument counts, and every construct without a back end (tuples, arrays,
+  structs, closures, method calls, `.field`, pipelines, lifecycle blocks, ...) are **compile errors**, never silent no-ops.
+  Tests: `seedvm/tests/programs.rs` (23 end-to-end programs).
+
+### S.8 Known gaps (as of CP4)
 | Area | Today | Tracked by |
 |---|---|---|
-| IR execution | compiler emits SSA-style IR; VM is a stack machine that ignores `dest`; user `Call` is a stub | ADR-020 |
-| Constants | all string literals lower to `String(0)`; no string pool | ADR-020 |
-| `typeck::infer_types` | returns its input unchanged | CP3 |
-| `nameres` | not a resolver (`let` binds `""`, errors dropped, single pass) | CP3 |
-| multi-arm `discharge` | rejected | CP3 |
-| `budget:` / `requires` | parsed, not enforced | CP3 |
+| Type checking | `typeck::infer_types` returns its input unchanged; type errors surface at run time | CP5 |
+| multi-arm `discharge` | rejected | CP5 |
+| `budget:` / `requires` | parsed, not enforced | CP5 |
+| data structures, methods, `self` | not supported (compile error) | CP5 |
+| `infer`/`think`/`ask` | placeholder VM behaviour | CP5+ |
+| `.aslb` signatures | checksum only | CP5 |
 | formatter | line-based, not a CST | Phase F8 |
 | debugger | protocol skeleton, no stepping | Phase F10 |
 

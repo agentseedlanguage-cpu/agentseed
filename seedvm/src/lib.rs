@@ -38,6 +38,8 @@ pub fn run_file(path: &Path, seed: u64) -> miette::Result<VMState> {
 pub fn run_bytes(data: &[u8], seed: u64) -> miette::Result<VMState> {
     let module: Module = seedc::binary::deserialize(data)
         .map_err(|e| miette::miette!("Deserialisation error: {}", e))?;
+    // `.aslb` input is untrusted: verify before executing.
+    seedc::ir::verify(&module).map_err(|e| miette::miette!("IR verification failed: {}", e))?;
     let mut vm = executor::VM::new(module, seed);
     vm.run()?;
     Ok(vm.state)

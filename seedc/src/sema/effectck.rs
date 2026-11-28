@@ -7,7 +7,6 @@ use std::collections::HashSet;
 
 pub struct EffectChecker {
     inside_discharge: bool,
-    accumulated: HashSet<Effect>,
     errors: Vec<TypeError>,
 }
 
@@ -16,7 +15,6 @@ impl EffectChecker {
     pub fn new() -> Self {
         Self {
             inside_discharge: false,
-            accumulated: HashSet::new(),
             errors: Vec::new(),
         }
     }

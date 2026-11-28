@@ -24,10 +24,9 @@ use thiserror::Error;
 #[derive(Debug)]
 pub struct VMState {
     // ── Execution context ──
-    /// Operand stack: implicit value passing between instructions.
-    pub stack: Vec<Value>,
-    /// Local variable array (function-scoped, indexed).
-    pub locals: Vec<Value>,
+    /// Call stack. Each [`Frame`] owns the registers of one function activation
+    /// (ADR-020: register frames, no operand stack).
+    pub frames: Vec<Frame>,
     /// Global variable table (module-level, named).
     pub globals: HashMap<String, Value>,
     /// Current instruction pointer: (function_index, block_index, instr_index).
@@ -113,6 +112,25 @@ pub enum ProvenanceEventKind {
     Custom(String),
 }
 
+// ── Call frames ──
+
+/// One function activation.
+#[derive(Debug, Clone)]
+pub struct Frame {
+    /// Index of the executing function in the module.
+    pub func: usize,
+    /// Registers, indexed by `VarId`; sized to the function's `max_locals`.
+    pub regs: Vec<Value>,
+    /// Current block and next instruction within it.
+    pub block: usize,
+    pub instr: usize,
+    /// Caller register that receives the return value.
+    pub ret_dest: Option<usize>,
+    /// Open `discharge` scopes in *this* activation. Per-frame on purpose: a
+    /// callee never inherits its caller's authority to `perform`.
+    pub discharge_depth: u32,
+}
+
 // ── VMState ──
 
 impl VMState {
@@ -123,8 +141,7 @@ impl VMState {
         let coherency = CoherencyController::new("agent-0");
 
         Self {
-            stack: Vec::with_capacity(256),
-            locals: vec![Value::Null; module.functions.first().map(|f| f.max_locals).unwrap_or(0)],
+            frames: Vec::new(),
             globals: HashMap::new(),
             ip: (0, 0, 0),
             current_func: 0,
@@ -145,30 +162,6 @@ impl VMState {
             exit_code: 0,
             trace_mode: false,
         }
-    }
-
-    // ── Stack helpers ──
-
-    /// Push a value onto the operand stack.
-    pub fn push(&mut self, v: Value) {
-        self.stack.push(v);
-    }
-
-    /// Pop a value from the operand stack.
-    pub fn pop(&mut self) -> Result<Value, VmError> {
-        self.stack.pop().ok_or(VmError::StackUnderflow)
-    }
-
-    /// Peek at the top of the stack without removing.
-    pub fn peek(&self) -> Option<&Value> {
-        self.stack.last()
-    }
-
-    /// Pop two values from the stack, returning (top, second).
-    pub fn pop2(&mut self) -> Result<(Value, Value), VmError> {
-        let b = self.pop()?;
-        let a = self.pop()?;
-        Ok((b, a))
     }
 
     // ── Provenance ──
@@ -208,13 +201,21 @@ impl VMState {
 
 #[derive(Error, Diagnostic, Debug)]
 pub enum VmError {
-    #[error("stack underflow")]
-    #[diagnostic(help("The operand stack was empty when a value was expected."))]
-    StackUnderflow,
+    #[error("call depth exceeded (limit {limit})")]
+    #[diagnostic(help("Likely unbounded recursion; raise `max_call_depth` only if intended."))]
+    CallDepthExceeded { limit: usize },
 
-    #[error("stack overflow (limit {limit})")]
-    #[diagnostic(help("The operand stack exceeded the maximum depth."))]
-    StackOverflow { limit: usize },
+    #[error("step limit exceeded ({limit} steps)")]
+    #[diagnostic(help("The program ran too long; raise `max_steps` only if intended."))]
+    FuelExhausted { limit: u64 },
+
+    #[error("invalid operand: {0}")]
+    #[diagnostic(help("The module is malformed (run the verifier before executing)."))]
+    InvalidOperand(String),
+
+    #[error("trap: {0}")]
+    #[diagnostic(help("The program reached an explicit trap."))]
+    Trap(String),
 
     #[error("division by zero")]
     #[diagnostic(help("Attempted to divide by zero."))]

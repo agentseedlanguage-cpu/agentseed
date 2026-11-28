@@ -5,7 +5,6 @@
 
 use crate::token::{keyword_from_str, Token, TokenKind};
 use crate::LexError;
-use miette::SourceSpan;
 use std::iter::Peekable;
 use std::str::Chars;
 
@@ -57,16 +56,6 @@ impl<'a> Lexer<'a> {
     }
 
     // ── Low‑level helpers ──
-
-    /// Return the current byte offset as a `SourceSpan` start.
-    fn span_start(&self) -> usize {
-        self.pos
-    }
-
-    /// Build a `SourceSpan` from a previously recorded start to current `self.pos`.
-    fn span(&self, start: usize) -> SourceSpan {
-        (start..self.pos).into()
-    }
 
     /// Peek at the next character without consuming it.
     fn peek(&mut self) -> Option<&char> {
@@ -176,8 +165,13 @@ impl<'a> Lexer<'a> {
             '0'..='9' => {
                 self.take_while(|ch| ch.is_ascii_digit() || ch == '_');
                 let mut is_float = false;
-                if self.peek() == Some(&'.') {
-                    // Look ahead to distinguish `1.` (float) from `1..` (range)
+                // A fraction needs a digit after the dot, so `1..5` (range) and
+                // `1.max(2)` (method call) keep the integer and the dot apart.
+                let digit_after_dot = self.source[self.pos..]
+                    .chars()
+                    .nth(1)
+                    .is_some_and(|ch| ch.is_ascii_digit());
+                if self.peek() == Some(&'.') && digit_after_dot {
                     is_float = true;
                     self.advance();
                     self.take_while(|ch| ch.is_ascii_digit() || ch == '_');
@@ -238,9 +232,39 @@ impl<'a> Lexer<'a> {
                 }
                 _ => TokenKind::Eq,
             },
-            '<' => self.check_two('<', '=', TokenKind::Shl, TokenKind::LtEq, TokenKind::Lt),
-            '>' => self.check_two('>', '=', TokenKind::Shr, TokenKind::GtEq, TokenKind::Gt),
-            '&' => self.check_compound('&', TokenKind::AndAnd, TokenKind::And),
+            '<' => match self.peek() {
+                Some('<') => {
+                    self.advance();
+                    self.check_compound('=', TokenKind::ShlEq, TokenKind::Shl)
+                }
+                Some('=') => {
+                    self.advance();
+                    TokenKind::LtEq
+                }
+                _ => TokenKind::Lt,
+            },
+            '>' => match self.peek() {
+                Some('>') => {
+                    self.advance();
+                    self.check_compound('=', TokenKind::ShrEq, TokenKind::Shr)
+                }
+                Some('=') => {
+                    self.advance();
+                    TokenKind::GtEq
+                }
+                _ => TokenKind::Gt,
+            },
+            '&' => match self.peek() {
+                Some('&') => {
+                    self.advance();
+                    TokenKind::AndAnd
+                }
+                Some('=') => {
+                    self.advance();
+                    TokenKind::AndEq
+                }
+                _ => TokenKind::And,
+            },
             // ── The fixed '|' arm ──
             '|' => {
                 if self.peek() == Some(&'|') {
@@ -254,6 +278,9 @@ impl<'a> Lexer<'a> {
                     } else {
                         TokenKind::PipeGt
                     }
+                } else if self.peek() == Some(&'=') {
+                    self.advance();
+                    TokenKind::OrEq
                 } else {
                     TokenKind::Pipe
                 }
@@ -273,13 +300,14 @@ impl<'a> Lexer<'a> {
             ']' => TokenKind::RBracket,
             ',' => TokenKind::Comma,
             ';' => TokenKind::Semicolon,
-            '.' => self.check_two(
-                '.',
-                '=',
-                TokenKind::DotDot,
-                TokenKind::DotDotEq,
-                TokenKind::Dot,
-            ),
+            '.' => {
+                if self.peek() == Some(&'.') {
+                    self.advance();
+                    self.check_compound('=', TokenKind::DotDotEq, TokenKind::DotDot)
+                } else {
+                    TokenKind::Dot
+                }
+            }
             '/' => self.check_compound('=', TokenKind::SlashEq, TokenKind::Slash),
             ':' => self.check_compound(':', TokenKind::ColonColon, TokenKind::Colon),
 
@@ -307,30 +335,6 @@ impl<'a> Lexer<'a> {
             compound
         } else {
             single
-        }
-    }
-
-    fn check_two(
-        &mut self,
-        first: char,
-        second: char,
-        both: TokenKind,
-        first_only: TokenKind,
-        neither: TokenKind,
-    ) -> TokenKind {
-        if self.peek() == Some(&first) {
-            self.advance();
-            if self.peek() == Some(&second) {
-                self.advance();
-                both
-            } else {
-                first_only
-            }
-        } else if self.peek() == Some(&second) {
-            self.advance();
-            first_only // only the second matched
-        } else {
-            neither
         }
     }
 }
@@ -370,6 +374,24 @@ mod tests {
         assert_eq!(tokens[0].kind, TokenKind::IntLiteral);
         assert_eq!(tokens[1].kind, TokenKind::FloatLiteral);
         assert_eq!(tokens[2].kind, TokenKind::IntLiteral);
+    }
+
+    #[test]
+    fn shifts_ranges_and_compound_assignment_lex_correctly() {
+        let kinds = |src: &str| -> Vec<TokenKind> {
+            tokenize(src).unwrap().iter().map(|t| t.kind).collect()
+        };
+        use TokenKind::*;
+        assert_eq!(kinds("<< >> <<= >>="), vec![Shl, Shr, ShlEq, ShrEq, Eof]);
+        assert_eq!(kinds("< <= > >="), vec![Lt, LtEq, Gt, GtEq, Eof]);
+        assert_eq!(
+            kinds("&& & &= || | |="),
+            vec![AndAnd, And, AndEq, OrOr, Pipe, OrEq, Eof]
+        );
+        assert_eq!(kinds("0..5"), vec![IntLiteral, DotDot, IntLiteral, Eof]);
+        assert_eq!(kinds("0..=5"), vec![IntLiteral, DotDotEq, IntLiteral, Eof]);
+        assert_eq!(kinds("1.5 2.0"), vec![FloatLiteral, FloatLiteral, Eof]);
+        assert_eq!(kinds("1.max"), vec![IntLiteral, Dot, Ident, Eof]);
     }
 
     #[test]

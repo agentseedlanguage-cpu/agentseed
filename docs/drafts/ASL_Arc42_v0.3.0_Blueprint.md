@@ -645,27 +645,29 @@ formulas for reachability properties.
 safety query latency drops from ~5ms (SMT) to ~0.1ms (Datalog) for
 reachability queries. Compiler routes to cheapest applicable engine.
 
-### ADR-020 — IR Execution Model: Register Frames [CP3 RECOMMENDATION]
-**Status:** Proposed (decision needed before any VM or lowering work)  
-**Context:** The compiler emits SSA-style IR (`dest` variables, `Var` operands) and the
-IR verifier (ADR-018) reasons about per-function slots, but the executor is a pure stack
-machine: it ignores `dest`, treats a `Var` operand as its numeric index, and `Call` with a
-string operand prints a hard-coded greeting. Straight-line arithmetic works only because
-operands happen to be pushed in order. Variables, user calls and branching are unsound.  
-**Options:** (A) *Register frames* — each call frame owns `regs[0..max_locals]`; every
-instruction reads its operands (immediates or `regs[v]`) and writes `dest`. (B) *True stack
-IR* — drop `dest`/SSA, make lowering emit postfix code, rewrite the verifier around stack
-depth.  
-**Recommendation:** **A.** Lowering, `max_locals` and the verifier already speak in slots,
-so A changes only the executor plus a string pool; B changes the compiler, the verifier
-and the executor. Register machines also avoid the operand-ordering bug class that
-caused this mismatch. (Lua 5's move to a register VM is the usual precedent; confirm the
-citation before using it in a paper.)  
-**Acceptance:** `fn f(a,b){let c=a+b; c*c}` runs correctly; a user function call returns a
-value; string literals round-trip through a pool (no `String(0)`); `print` is a real
-builtin; the hard-coded greeting is gone.  
-**Consequences:** Executor rewrite (the dispatch loop and ~50 opcode handlers); `.aslb`
-format version bump (ADR-001) for the string pool.
+### ADR-020 — IR Execution Model: Register Frames [CP4]
+**Status:** **Accepted** (implemented in CP4)  
+**Context:** The compiler emitted SSA-style IR (`dest`, `Var` operands) and the verifier reasoned
+about slots, but the executor was a pure stack machine that ignored `dest`; user calls were a stub
+and `Call` with a string printed a hard-coded greeting. Beyond the executor, lowering itself was
+unsound for control flow (the entry block's terminator was overwritten, code after an `if` landed in
+the wrong block, `x = 5` always stored to register 0, `^ << >>` lowered to `Const`, `match` lowered
+only its first arm, calls carried no callee).  
+**Decision:** *Mutable-register IR with per-call frames.* A `VarId` is a frame register that may be
+written repeatedly; instructions read operands (immediates or registers) and write `dest`; control-flow
+joins communicate through a result register (no phi); `Call [Func(id), args..]` pushes a frame and
+`Return` writes the caller's `dest`. Strings live in a module string pool (`Operand::String(i)`).
+Lowering is a cursor-based builder. `discharge` depth is **per frame**.  
+**Evidence (read at abstract level; see `docs/ASL_CP3_RESEARCH_NOTES.md` R9):** Shi et al.
+(ACM TACO 2008) report a register VM executing a 1.48× average speedup over the equivalent stack VM
+with switch dispatch (1.15× with inline-threaded dispatch); a 2016 study (arXiv:1611.00467) reports
+about 20% less run time. Performance was a tiebreaker, not the reason: the compiler and verifier
+already spoke in slots, and register semantics remove the operand-ordering bug class.  
+**Consequences:** `.aslb` format 15.3 (string pool; older minors rejected); verifier is now a dataflow
+(definite assignment + discharge depth + operand/arity/range checks) and runs before `.aslb`
+execution; VM has bounded call depth and step fuel; effect names are real; `print` is an opcode
+(`Print`), failed `match` is a `Trap`. Open follow-up: the dispatch loop clones each instruction
+(use `Rc<Module>` + indices), and `.aslb` has no signature yet.
 
 ### ADR-027 — Seed Documents and Typed Sections Coexist [CP2]
 **Status:** Accepted  
@@ -734,48 +736,53 @@ rather than miscompiled (extends ADR-024).
 | SessionHandle affine tracking memory overhead | Low | One handle table entry per spawned agent |
 | CoMem slows federation convergence | Low-Medium | Configurable threshold; can set to 1 for fast networks |
 
-### 8.3 Phase 0 Priority — status at CP3
+### 8.3 Phase 0 Priority — status at CP4
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `sema::effectck` enforced | ✅ rule enforced from source text, in every function body (CP2) |
+| 1 | `sema::effectck` enforced | ✅ rule enforced from source text, in every function body; IR verifier re-checks it flow-sensitively |
 | 2 | `sema::taintck` 4D propagation | ◐ pass runs over all bodies; `taint.rs` library audited; not wired into the executor |
 | 3 | `sema::contractck` stratum gating | ◐ runs over all bodies but has **one rule** (a `discharge` needs an arm); **no stratum or charter checks exist** |
 | 4 | Hanging stdin test | ✅ |
-| 5 | Broken scaffold crates | ✅ all four build, lint clean, in the workspace (CP2); manifests trimmed of unused deps (CP3) |
-| 6 | `clippy::unwrap_used` in library code | ◐ `clippy -D warnings` clean on the workspace; blanket `allow(unused)` / `allow(clippy::all)` remain in `seedc` / `seedvm` |
-| 7 | Test baseline | ✅ 17 → 206 tests (CP3), plus an end-to-end CLI smoke suite |
-| 8 | Dead-module guard (ADR-017) | ✅ script in CI (CP3) |
-| 9 | Orphaned root `tests/` | ✅ replaced by `seedc-cli/tests/cli_smoke.rs` (CP3) |
+| 5 | Broken scaffold crates | ✅ build, lint clean, in the workspace; manifests trimmed |
+| 6 | `clippy::unwrap_used` / blanket `allow`s | ✅ `seedc` has no blanket `allow` (CP4); remaining targeted `allow(dead_code)` are on the dormant type-inference engine and are commented |
+| 7 | Test baseline | ✅ 17 → **252** tests (CP4), incl. 23 end-to-end programs and a CLI smoke suite |
+| 8 | Dead-module guard (ADR-017) | ✅ in CI |
+| 9 | Orphaned root `tests/` | ✅ replaced by `seedc-cli/tests/cli_smoke.rs` |
+| 10 | IR execution model (ADR-020) | ✅ register frames, string pool, real calls/recursion, `print` (CP4) |
+| 11 | `nameres` | ✅ two-pass, binds patterns, covers agent methods, builtins (CP4) |
 
-### 8.4 Reality Register (CP3) — what is *not* real yet
+### 8.4 Reality Register (CP4) — what is *not* real yet
 
 | Claim in the drafts | Reality |
 |---|---|
-| "Hindley–Milner type inference" | `infer_types` returns its input unchanged |
-| "name resolution" | `let` binds the name `""`; errors are discarded; single pass |
-| "SSA IR / VM executes it" | VM is a stack machine ignoring `dest` (ADR-020) |
-| "user function calls" | `Call` is a stub |
-| "constants / strings" | every string literal lowers to `String(0)` |
-| "stratum gating, charter bounds (contractck)" | one rule only: a `discharge` needs an arm |
+| "Hindley–Milner type inference" | `infer_types` returns its input unchanged; the engine exists but is dormant. **Nothing checks types**: `1 + "a"` fails at run time |
 | "multi-arm discharge" | rejected as `Unsupported` |
 | "`budget` / `requires` gates" | parsed, not lowered / not enforced |
+| "stratum gating, charter bounds (contractck)" | one rule only |
 | "capability, taint, trace, bi-temporal, datalog" | tested libraries with no call site in the executor |
+| "tuples, arrays, structs, enums, closures, methods, `.field`, pipelines, `spawn`-body, signals, ontology, evolve/train" | not parsed or rejected as `Unsupported` at compile time |
+| "agent lifecycle / state machines / `self`" | rejected; agents are namespaces for methods today |
+| "`infer`/`think`/`ask` semantics" | placeholder VM behaviour (constant uncertain value) |
+| "`.aslb` integrity" | checksum only; no signature (ADR-001 follow-up) |
 | "formatter is CST-based" | line-based |
 | "debugger" | protocol skeleton |
-| "package manager" | resolver exists, unwired; no download/verify/extract |
+| "package manager" | resolver exists, unwired |
+
+Resolved at CP4 and removed from this table: stack-vs-SSA mismatch, stub `Call`, `String(0)` pooling,
+`nameres` facade, silent mis-lowering of `if`/loops/assignment/bit operators/`match`.
 
 Rule: the drafts may keep their *target* text, but any release note, README or paper must
 quote this table, not the target text.
 
-### 8.5 CP3 plan (next code checkpoint, in order)
-1. **Decide ADR-020**, then implement register frames + string pool + real `print`/`Call`.
-2. Real two-pass `nameres` (collect, then resolve; bind pattern names; surface errors).
-3. Wire `infer_types` into `sema::check`, starting with the simple monomorphic cases.
-4. Lower multi-arm `discharge` with a `ConfidenceGe` branch; lower `budget:`.
-5. Enforce `requires cap::X` through `capability.rs`.
-6. Remove the blanket `allow` attributes and triage what they hide.
-7. Audit the dormant modules (`uncertainty`, `tee`, `inference`, `orchestrator`) as `capability` and `taint` were.
+### 8.5 CP5 plan (next code checkpoint, in order)
+1. Wire `infer_types` into `sema::check` (monomorphic first) so type errors are compile-time.
+2. Lower multi-arm `discharge` (branch on runtime confidence) and `budget:`.
+3. Enforce `requires cap::X` through `capability.rs`; call `taint.rs` from the executor.
+4. Data structures: tuples, arrays, structs; method calls and field access.
+5. Agent lifecycle blocks and `self`/state.
+6. `Rc<Module>` dispatch (no per-step clone); `.aslb` signatures.
+7. Audit the dormant modules (`uncertainty`, `tee`, `inference`, `orchestrator`).
 
 ---
 

@@ -1,91 +1,279 @@
-//! AST → IR lowering for AGENT‑SEED v15.2.
+//! AST → IR lowering.
 //!
-//! Converts the typed AST into SSA‑based IR.  Every language construct is
-//! lowered to the corresponding instruction sequence described in the
-//! architecture and the IR specification (§4 of the language reference).
+//! Target: the mutable-register IR of ADR-020. Every `VarId` is a frame
+//! register; `let` and assignment write registers with `StoreLocal`, reads go
+//! through `LoadLocal`, and control-flow joins communicate through a result
+//! register (no phi nodes).
+//!
+//! The lowerer keeps a **cursor** (`cur` block): expressions are emitted at the
+//! cursor, and constructs that create blocks (`if`, loops, `&&`, `match`) move
+//! it to their merge block, so code after them lands in the right place.
+//!
+//! **Fail closed (ADR-030).** A construct this back end cannot lower correctly
+//! is reported as a [`LowerDiagnostic`] rather than silently miscompiled;
+//! [`lower_checked`] (used by `compile`) turns any diagnostic into an error.
 
 use crate::ast::*;
 use crate::ir::*;
+use miette::SourceSpan;
 use std::collections::HashMap;
 
+/// A construct (or name) the lowerer could not translate faithfully.
+#[derive(Debug, Clone)]
+pub struct LowerDiagnostic {
+    pub message: String,
+    pub span: Option<SourceSpan>,
+}
+
+/// Best-effort lowering: diagnostics are discarded. Intended for IR-shape tests;
+/// the compiler pipeline uses [`lower_checked`].
 pub fn lower(program: &Program) -> Module {
-    let mut lowerer = Lowerer::new();
-    lowerer.lower_program(program);
-    lowerer.module
+    lower_with_diagnostics(program).0
+}
+
+/// Lower a program, failing with every diagnostic if anything is unsupported.
+pub fn lower_checked(program: &Program) -> Result<Module, Vec<LowerDiagnostic>> {
+    let (module, diags) = lower_with_diagnostics(program);
+    if diags.is_empty() {
+        Ok(module)
+    } else {
+        Err(diags)
+    }
+}
+
+fn lower_with_diagnostics(program: &Program) -> (Module, Vec<LowerDiagnostic>) {
+    let mut l = Lowerer::new();
+    l.lower_program(program);
+    (l.module, l.diags)
+}
+
+struct LoopCtx {
+    continue_to: BlockId,
+    break_to: BlockId,
+    /// Register receiving `break value` (only `loop` yields a value).
+    result: Option<VarId>,
+    /// Lowering-time discharge depth at loop entry; `break`/`continue` close
+    /// any scopes opened inside the loop before jumping out.
+    discharge_depth: u32,
 }
 
 struct Lowerer {
     module: Module,
-    current_func: Option<FuncId>,
-    /// Name → IR local slot for the function currently being lowered.
+    cur_func: FuncId,
+    cur: BlockId,
+    /// The cursor block already has a terminator; the next emit opens a dead block.
+    terminated: bool,
     scopes: Vec<HashMap<String, VarId>>,
+    fn_ids: HashMap<String, FuncId>,
+    loops: Vec<LoopCtx>,
+    discharge_depth: u32,
+    diags: Vec<LowerDiagnostic>,
+}
+
+/// A function body queued for lowering after all signatures are known.
+enum Body<'a> {
+    Decl(&'a FnDecl),
+    /// Top-level expressions gathered into a synthetic `main`.
+    Main(Vec<&'a Expr>),
 }
 
 impl Lowerer {
     fn new() -> Self {
         Self {
             module: Module::new(),
-            current_func: None,
+            cur_func: 0,
+            cur: 0,
+            terminated: false,
             scopes: Vec::new(),
+            fn_ids: HashMap::new(),
+            loops: Vec::new(),
+            discharge_depth: 0,
+            diags: Vec::new(),
         }
     }
+
+    // ── diagnostics ──
+
+    fn diag(&mut self, message: impl Into<String>, span: Option<SourceSpan>) {
+        self.diags.push(LowerDiagnostic {
+            message: message.into(),
+            span,
+        });
+    }
+
+    fn unsupported(&mut self, what: &str, span: SourceSpan) -> Operand {
+        self.diag(
+            format!("{what} is not supported by the back end yet"),
+            Some(span),
+        );
+        Operand::Null
+    }
+
+    // ── program / function structure ──
 
     fn lower_program(&mut self, program: &Program) {
+        // Pass 1: declare every function so calls can resolve (and recurse).
+        let mut queue: Vec<(FuncId, Body)> = Vec::new();
+        let mut main_exprs: Vec<&Expr> = Vec::new();
         for item in &program.items {
-            self.lower_top_level(item);
-        }
-    }
-
-    fn lower_top_level(&mut self, item: &TopLevelItem) {
-        match item {
-            TopLevelItem::Agent(a) => {
-                for member in &a.members {
-                    if let AgentMember::Method(f) = member {
-                        self.lower_fn_decl(f);
+            match item {
+                TopLevelItem::Fn(f) => self.declare_fn(&f.name.name, f, &mut queue),
+                TopLevelItem::Agent(a) => {
+                    for m in &a.members {
+                        match m {
+                            AgentMember::Method(f) => {
+                                let qualified = format!("{}::{}", a.name.name, f.name.name);
+                                self.declare_fn(&qualified, f, &mut queue);
+                            }
+                            AgentMember::Field(_) => {}
+                            _ => self.diag(
+                                format!(
+                                    "agent `{}`: lifecycle/state-machine/signal/clause members are not lowered yet",
+                                    a.name.name
+                                ),
+                                Some(a.span),
+                            ),
+                        }
                     }
                 }
+                TopLevelItem::Expression(e) => main_exprs.push(e),
+                TopLevelItem::Impl(i) => {
+                    self.diag("`impl` blocks are not lowered yet", Some(i.span))
+                }
+                TopLevelItem::Mod(m) => self.diag("`mod` items are not lowered yet", Some(m.span)),
+                TopLevelItem::Handler(_) | TopLevelItem::Clause(..) => {
+                    self.diag("handlers and top-level clauses are not lowered yet", None)
+                }
+                // Pure declarations carry no executable code.
+                TopLevelItem::Seed(_)
+                | TopLevelItem::Section(_)
+                | TopLevelItem::Struct(_)
+                | TopLevelItem::Enum(_)
+                | TopLevelItem::Trait(_)
+                | TopLevelItem::Use(_)
+                | TopLevelItem::Extern(_)
+                | TopLevelItem::Effect(_) => {}
             }
-            TopLevelItem::Fn(f) => self.lower_fn_decl(f),
-            TopLevelItem::Expression(e) => {
-                // wrap in a synthetic main
-                let func = Function::new("main".into(), vec![], IrType::I32);
-                let entry = func.entry;
-                self.current_func = Some(self.module.add_function(func));
-                let val = self.lower_expr(e, entry);
-                let term = Terminator::Return(Some(val));
-                self.module.functions[self.current_func.unwrap()].set_terminator(entry, term);
-                self.current_func = None;
+        }
+        if !main_exprs.is_empty() {
+            if self.fn_ids.contains_key("main") {
+                self.diag(
+                    "top-level expressions cannot be combined with `fn main`",
+                    None,
+                );
+            } else {
+                let f = Function::new("main".into(), vec![], IrType::Void);
+                let id = self.module.add_function(f);
+                self.fn_ids.insert("main".into(), id);
+                queue.push((id, Body::Main(main_exprs)));
             }
-            _ => {}
+        }
+        // Pass 2: lower bodies.
+        for (id, body) in queue {
+            self.begin_function(id);
+            match body {
+                Body::Decl(f) => {
+                    for (slot, p) in f.params.iter().enumerate() {
+                        self.bind(&p.name.name, slot);
+                    }
+                    let v = match &f.body {
+                        Some(b) => self.lower_block(b),
+                        None => Operand::Null,
+                    };
+                    self.terminate(Terminator::Return(Some(v)));
+                }
+                Body::Main(exprs) => {
+                    let mut last = Operand::Null;
+                    for e in exprs {
+                        last = self.lower_expr(e);
+                    }
+                    self.terminate(Terminator::Return(Some(last)));
+                }
+            }
         }
     }
 
-    fn lower_fn_decl(&mut self, f: &FnDecl) {
-        let ret_ty = match &f.return_ty {
+    fn declare_fn<'a>(&mut self, name: &str, f: &'a FnDecl, queue: &mut Vec<(FuncId, Body<'a>)>) {
+        if self.fn_ids.contains_key(name) {
+            self.diag(format!("function `{name}` is defined twice"), Some(f.span));
+            return;
+        }
+        let ret = match &f.return_ty {
             Some(ty) => self.convert_type(ty),
             None => IrType::Void,
         };
-        let func = Function::new(f.name.name.clone(), (0..f.params.len()).collect(), ret_ty);
-        let fid = self.module.add_function(func);
-        self.current_func = Some(fid);
-        self.scopes.clear();
-        self.scopes.push(HashMap::new());
-        for (slot, p) in f.params.iter().enumerate() {
-            self.bind(&p.name.name, slot);
-        }
-        if let Some(body) = &f.body {
-            let entry = self.module.functions[fid].entry;
-            let last_val = self.lower_block(body, entry);
-            let term = match last_val {
-                Some(v) => Terminator::Return(Some(v)),
-                None => Terminator::Return(None),
-            };
-            self.module.functions[fid].set_terminator(entry, term);
-        }
-        self.current_func = None;
+        let func = Function::new(name.to_string(), (0..f.params.len()).collect(), ret);
+        let id = self.module.add_function(func);
+        self.fn_ids.insert(name.to_string(), id);
+        queue.push((id, Body::Decl(f)));
     }
 
-    /// Bind `name` to `slot` in the innermost lexical scope (shadows outer).
+    fn begin_function(&mut self, id: FuncId) {
+        self.cur_func = id;
+        self.cur = self.module.functions[id].entry;
+        self.terminated = false;
+        self.scopes.clear();
+        self.scopes.push(HashMap::new());
+        self.loops.clear();
+        self.discharge_depth = 0;
+    }
+
+    // ── emission helpers ──
+
+    fn func_mut(&mut self) -> &mut Function {
+        &mut self.module.functions[self.cur_func]
+    }
+
+    fn new_reg(&mut self) -> VarId {
+        self.func_mut().new_var()
+    }
+
+    fn new_block(&mut self) -> BlockId {
+        self.func_mut().add_block()
+    }
+
+    /// Make sure the cursor can accept instructions (dead code after a
+    /// terminator goes to a fresh, unreachable block).
+    fn open(&mut self) {
+        if self.terminated {
+            self.cur = self.new_block();
+            self.terminated = false;
+        }
+    }
+
+    fn emit(&mut self, op: Opcode, dest: Option<VarId>, operands: Vec<Operand>) {
+        self.open();
+        let cur = self.cur;
+        self.func_mut()
+            .push_instr(cur, Instr::new(op, dest, operands));
+    }
+
+    fn emit_val(&mut self, op: Opcode, operands: Vec<Operand>) -> Operand {
+        let dest = self.new_reg();
+        self.emit(op, Some(dest), operands);
+        Operand::Var(dest)
+    }
+
+    fn store(&mut self, slot: VarId, value: Operand) {
+        self.emit(Opcode::StoreLocal, None, vec![Operand::Var(slot), value]);
+    }
+
+    fn terminate(&mut self, t: Terminator) {
+        if self.terminated {
+            return;
+        }
+        let cur = self.cur;
+        self.func_mut().set_terminator(cur, t);
+        self.terminated = true;
+    }
+
+    fn switch_to(&mut self, b: BlockId) {
+        self.cur = b;
+        self.terminated = false;
+    }
+
+    // ── scopes ──
+
     fn bind(&mut self, name: &str, slot: VarId) {
         if self.scopes.is_empty() {
             self.scopes.push(HashMap::new());
@@ -95,362 +283,156 @@ impl Lowerer {
         }
     }
 
-    /// Resolve `name` innermost-first.
     fn lookup(&self, name: &str) -> Option<VarId> {
         self.scopes.iter().rev().find_map(|s| s.get(name).copied())
     }
 
-    fn lower_block(&mut self, block: &BlockExpr, blk: BlockId) -> Option<Operand> {
-        // Every block is its own lexical scope: bindings do not leak out.
+    // ── blocks and statements ──
+
+    fn lower_block(&mut self, block: &BlockExpr) -> Operand {
         self.scopes.push(HashMap::new());
-        let mut last_val = None;
         for stmt in &block.stmts {
-            last_val = self.lower_stmt(stmt, blk);
+            self.lower_stmt(stmt);
         }
-        if let Some(e) = &block.last {
-            last_val = Some(self.lower_expr(e, blk));
-        }
+        let v = match &block.last {
+            Some(e) => self.lower_expr(e),
+            None => Operand::Null,
+        };
         self.scopes.pop();
-        last_val
+        v
     }
 
-    fn lower_stmt(&mut self, stmt: &Stmt, blk: BlockId) -> Option<Operand> {
+    fn lower_stmt(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::Let(l) => {
-                let val = self.lower_expr(&l.init, blk);
-                let func = self.func();
-                let var = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(var), val]),
-                );
-                if let PatternKind::Binding(id, _) = &l.pattern.kind {
-                    self.bind(&id.name, var);
-                }
-                Some(Operand::Var(var))
+            Stmt::Let(l) => self.lower_let(l),
+            Stmt::Expr(e) => {
+                self.lower_expr(e);
             }
-            Stmt::Expr(e) => Some(self.lower_expr(e, blk)),
             Stmt::Return(r) => {
-                let val = r.expr.as_ref().map(|e| self.lower_expr(e, blk));
-                let func = self.func();
-                func.set_terminator(blk, Terminator::Return(val));
-                None
+                let v = match &r.expr {
+                    Some(e) => self.lower_expr(e),
+                    None => Operand::Null,
+                };
+                self.terminate(Terminator::Return(Some(v)));
             }
-            Stmt::Break(_) => {
-                let func = self.func();
-                func.set_terminator(blk, Terminator::Halt);
-                None
+            Stmt::Break(b) => self.lower_break(b.expr.as_ref(), b.span),
+            Stmt::Continue(c) => self.lower_continue(c.span),
+            Stmt::Item(TopLevelItem::Expression(e)) => {
+                self.lower_expr(e);
             }
-            Stmt::Continue(_) => {
-                let func = self.func();
-                func.set_terminator(blk, Terminator::Halt);
-                None
-            }
-            Stmt::Item(TopLevelItem::Expression(e)) => Some(self.lower_expr(e, blk)),
-            _ => None,
+            Stmt::Item(_) => self.diag("nested item declarations are not supported yet", None),
         }
     }
 
-    fn lower_expr(&mut self, expr: &Expr, blk: BlockId) -> Operand {
+    fn lower_let(&mut self, l: &LetStmt) {
+        // Evaluate the initialiser first so `let x = x + 1` sees the outer `x`.
+        let val = self.lower_expr(&l.init);
+        match &l.pattern.kind {
+            PatternKind::Binding(id, None) => {
+                let slot = self.new_reg();
+                self.store(slot, val);
+                self.bind(&id.name, slot);
+            }
+            PatternKind::Wildcard => {}
+            _ => self.diag(
+                "destructuring patterns in `let` are not supported yet",
+                Some(l.span),
+            ),
+        }
+    }
+
+    // ── expressions ──
+
+    fn lower_expr(&mut self, expr: &Expr) -> Operand {
+        let span = expr.span;
         match &expr.kind {
-            // ── Literals ──
-            ExprKind::Lit(lit) => self.lower_literal(lit),
-            ExprKind::Ident(ident) => self.lower_ident(ident, blk),
+            ExprKind::Lit(lit) => self.lower_literal(lit, span),
+            ExprKind::Ident(ident) => self.lower_ident(ident),
 
-            // ── Binary / Unary ──
-            ExprKind::Binary(op, lhs, rhs) => {
-                let l = self.lower_expr(lhs, blk);
-                let r = self.lower_expr(rhs, blk);
-                let ir_op = self.lower_binary_op(*op);
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(ir_op, Some(dest), vec![l, r]));
-                Operand::Var(dest)
-            }
+            ExprKind::Binary(op, lhs, rhs) => match op {
+                BinaryOp::And => self.lower_short_circuit(lhs, rhs, true),
+                BinaryOp::Or => self.lower_short_circuit(lhs, rhs, false),
+                _ => {
+                    let l = self.lower_expr(lhs);
+                    let r = self.lower_expr(rhs);
+                    let opcode = Self::binary_opcode(*op);
+                    self.emit_val(opcode, vec![l, r])
+                }
+            },
 
-            ExprKind::Unary(op, e) => {
-                let operand = self.lower_expr(e, blk);
-                let ir_op = match op {
-                    UnaryOp::Neg => Opcode::Sub,
-                    UnaryOp::Not => Opcode::Not,
-                    _ => Opcode::Nop,
+            ExprKind::Unary(op, e) => match op {
+                UnaryOp::Neg => {
+                    let v = self.lower_expr(e);
+                    self.emit_val(Opcode::Sub, vec![Operand::Int(0), v])
+                }
+                UnaryOp::Not => {
+                    let v = self.lower_expr(e);
+                    self.emit_val(Opcode::Not, vec![v])
+                }
+                UnaryOp::BitNot => {
+                    let v = self.lower_expr(e);
+                    self.emit_val(Opcode::BitXor, vec![v, Operand::Int(-1)])
+                }
+                _ => self.unsupported("this unary operator", span),
+            },
+
+            ExprKind::Call(callee, args) => self.lower_call(callee, args, span),
+            ExprKind::Block(b) => self.lower_block(b),
+            ExprKind::If(i) => self.lower_if(i),
+            ExprKind::Match(m) => self.lower_match(m),
+            ExprKind::Loop(l) => self.lower_loop(l),
+            ExprKind::While(w) => self.lower_while(w),
+            ExprKind::For(f) => self.lower_for(f),
+
+            ExprKind::Return(e) => {
+                let v = match e {
+                    Some(e) => self.lower_expr(e),
+                    None => Operand::Null,
                 };
-                if ir_op == Opcode::Sub {
-                    let func = self.func();
-                    let zero = func.new_var();
-                    func.push_instr(
-                        blk,
-                        Instr::new(Opcode::Const, Some(zero), vec![Operand::Int(0)]),
-                    );
-                    let dest = func.new_var();
-                    func.push_instr(
-                        blk,
-                        Instr::new(Opcode::Sub, Some(dest), vec![Operand::Var(zero), operand]),
-                    );
-                    Operand::Var(dest)
-                } else {
-                    let func = self.func();
-                    let dest = func.new_var();
-                    func.push_instr(blk, Instr::new(ir_op, Some(dest), vec![operand]));
-                    Operand::Var(dest)
-                }
-            }
-
-            // ── Calls (print built‑in first) ──
-            ExprKind::Call(callee, args) => {
-                if let ExprKind::Ident(ident) = &callee.kind {
-                    if ident.name == "print" {
-                        let arg_val = args
-                            .first()
-                            .map(|a| self.lower_expr(a, blk))
-                            .unwrap_or(Operand::Null);
-                        let func = self.func();
-                        func.push_instr(blk, Instr::new(Opcode::Call, None, vec![arg_val.clone()]));
-                        return arg_val;
-                    }
-                }
-                let func_op = self.lower_expr(callee, blk);
-                let mut ops = vec![func_op];
-                for a in args {
-                    ops.push(self.lower_expr(a, blk));
-                }
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Call, Some(dest), ops));
-                Operand::Var(dest)
-            }
-
-            // ── Method call ──
-            ExprKind::Method(obj, _name, args) => {
-                let obj_val = self.lower_expr(obj, blk);
-                let mut ops = vec![Operand::Var(0), obj_val];
-                for a in args {
-                    ops.push(self.lower_expr(a, blk));
-                }
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Call, Some(dest), ops));
-                Operand::Var(dest)
-            }
-
-            // ── Member / Index / Field access ──
-            ExprKind::Member(obj, _field) | ExprKind::Field(obj, _field) => {
-                let obj_val = self.lower_expr(obj, blk);
-                let field_idx = Operand::String(0);
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::Load, Some(dest), vec![obj_val, field_idx]),
-                );
-                Operand::Var(dest)
-            }
-
-            ExprKind::Index(obj, index) => {
-                let obj_val = self.lower_expr(obj, blk);
-                let idx_val = self.lower_expr(index, blk);
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::Load, Some(dest), vec![obj_val, idx_val]),
-                );
-                Operand::Var(dest)
-            }
-
-            // ── Block ──
-            ExprKind::Block(b) => self.lower_block(b, blk).unwrap_or(Operand::Null),
-
-            // ── Control flow ──
-            ExprKind::If(i) => self.lower_if(i, blk),
-            ExprKind::Match(m) => self.lower_match(m, blk),
-            ExprKind::Loop(l) => self.lower_loop(l, blk),
-            ExprKind::While(w) => self.lower_while(w, blk),
-            ExprKind::For(f) => self.lower_for(f, blk),
-
-            // ── Return / Break / Continue ──
-            ExprKind::Return(Some(e)) => {
-                let val = self.lower_expr(e, blk);
-                let func = self.func();
-                func.set_terminator(blk, Terminator::Return(Some(val)));
+                self.terminate(Terminator::Return(Some(v)));
                 Operand::Null
             }
-            ExprKind::Return(None) => {
-                let func = self.func();
-                func.set_terminator(blk, Terminator::Return(None));
+            ExprKind::Break(e) => {
+                self.lower_break(e.as_ref(), span);
                 Operand::Null
             }
-            ExprKind::Break(_) | ExprKind::Continue => {
-                let func = self.func();
-                func.set_terminator(blk, Terminator::Halt);
+            ExprKind::Continue => {
+                self.lower_continue(span);
                 Operand::Null
             }
-
-            // ── Let ──
             ExprKind::Let(l) => {
-                let val = self.lower_expr(&l.init, blk);
-                let func = self.func();
-                let var = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(var), val]),
-                );
-                Operand::Var(var)
-            }
-
-            // ── Closure ──
-            ExprKind::Closure(_) => {
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::Const, Some(dest), vec![Operand::Func(0)]),
-                );
-                Operand::Var(dest)
-            }
-
-            // ── Compound literals ──
-            ExprKind::Tuple(elems) | ExprKind::Array(elems) => {
-                let mut ops = vec![Operand::Int(elems.len() as i64)];
-                for elem in elems {
-                    ops.push(self.lower_expr(elem, blk));
-                }
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), ops));
-                Operand::Var(dest)
-            }
-
-            ExprKind::StructLit(ty, fields) => {
-                let irty = self.convert_type(ty);
-                let mut ops = vec![Operand::Type(irty)];
-                for (_, val) in fields {
-                    ops.push(self.lower_expr(val, blk));
-                }
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), ops));
-                Operand::Var(dest)
-            }
-
-            ExprKind::EnumLit(ty, _variant, payload) => {
-                let irty = self.convert_type(ty);
-                let mut ops = vec![Operand::Type(irty), Operand::String(0)];
-                if let Some(p) = payload {
-                    for val in p {
-                        ops.push(self.lower_expr(val, blk));
-                    }
-                }
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), ops));
-                Operand::Var(dest)
-            }
-
-            // ── Pipeline ──
-            ExprKind::Pipeline(lhs, _op, rhs) => {
-                let l = self.lower_expr(lhs, blk);
-                let r = self.lower_expr(rhs, blk);
-                let func = self.func();
-                func.push_instr(blk, Instr::new(Opcode::PipePush, None, vec![l, r.clone()]));
-                r
-            }
-
-            // ── Redirect / ProcessSub ──
-            ExprKind::Redirect(_, _, _) | ExprKind::ProcessSub(_, _) => {
-                let func = self.func();
-                func.push_instr(blk, Instr::new(Opcode::Nop, None, vec![]));
+                self.lower_let(l);
                 Operand::Null
             }
+            ExprKind::Assignment(target, op, rhs) => self.lower_assignment(target, op, rhs, span),
 
-            // ── HereDoc / HereString ──
-            ExprKind::HereDoc(_) => {
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::Const, Some(dest), vec![Operand::String(0)]),
-                );
-                Operand::Var(dest)
+            // ── agent constructs with a defined VM meaning ──
+            ExprKind::Discharge(scrutinee, arms) => self.lower_discharge(scrutinee, arms, span),
+            ExprKind::Perform(effect, args, _requires) => {
+                let name = self.module.intern(&effect.name);
+                let mut ops = vec![Operand::String(name)];
+                for a in args {
+                    let v = self.lower_expr(a);
+                    ops.push(v);
+                }
+                self.emit_val(Opcode::Perform, ops)
             }
-            ExprKind::HereString(expr) => self.lower_expr(expr, blk),
-
-            // ── Assignment ──
-            ExprKind::Assignment(_, _, rhs) => {
-                let r = self.lower_expr(rhs, blk);
-                let func = self.func();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::StoreLocal, None, vec![Operand::Var(0), r.clone()]),
-                );
-                r
+            ExprKind::Ask(_, e) => {
+                let v = self.lower_expr(e);
+                self.emit_val(Opcode::ConfidenceAsk, vec![v])
             }
-
-            // ── Range / Cast ──
-            ExprKind::Range(start, _, end) => {
-                let s = self.lower_expr(start, blk);
-                let e = self.lower_expr(end, blk);
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Const, Some(dest), vec![s, e]));
-                Operand::Var(dest)
-            }
-
-            ExprKind::Cast(expr, ty) => {
-                let val = self.lower_expr(expr, blk);
-                let irty = self.convert_type(ty);
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::Const, Some(dest), vec![Operand::Type(irty), val]),
-                );
-                Operand::Var(dest)
-            }
-
-            ExprKind::CastGradual(expr, ty) => {
-                let cast_node = Box::new(ExprNode {
-                    kind: ExprKind::Cast(expr.clone(), ty.clone()),
-                    span: expr.span,
-                });
-                self.lower_expr(&cast_node, blk)
-            }
-
-            // ── Confidence / Think / Ask ──
-            ExprKind::Ask(_, expr) => {
-                let val = self.lower_expr(expr, blk);
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::ConfidenceAsk, Some(dest), vec![val]),
-                );
-                Operand::Var(dest)
-            }
-
-            ExprKind::Confident(expr, level) => {
-                let val = self.lower_expr(expr, blk);
+            ExprKind::Confident(e, level) => {
+                let v = self.lower_expr(e);
                 let threshold = match level {
                     ConfidenceLevel::High => 0.9,
                     ConfidenceLevel::Medium => 0.75,
                     ConfidenceLevel::Low => 0.5,
                     ConfidenceLevel::Custom(f) => *f,
                 };
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(
-                        Opcode::ConfidenceGate,
-                        Some(dest),
-                        vec![Operand::Float(threshold), val],
-                    ),
-                );
-                Operand::Var(dest)
+                self.emit_val(Opcode::ConfidenceGate, vec![Operand::Float(threshold), v])
             }
-
-            ExprKind::Think(depth, expr) => {
-                let val = self.lower_expr(expr, blk);
+            ExprKind::Think(depth, e) => {
+                let v = self.lower_expr(e);
                 let budget = match depth {
                     ThinkDepth::Shallow => 500,
                     ThinkDepth::Medium => 2000,
@@ -458,280 +440,56 @@ impl Lowerer {
                     ThinkDepth::Exhaustive => 50000,
                     ThinkDepth::Budget(n) => *n,
                 };
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(
-                        Opcode::Infer,
-                        Some(dest),
-                        vec![Operand::Int(budget as i64), val],
-                    ),
-                );
-                Operand::Var(dest)
+                self.emit_val(Opcode::Infer, vec![Operand::Int(budget as i64), v])
             }
+            ExprKind::Observe(e) | ExprKind::Infer(e) => {
+                let v = self.lower_expr(e);
+                self.emit_val(Opcode::Infer, vec![v])
+            }
+            ExprKind::Spawn(e) => {
+                let v = self.lower_expr(e);
+                self.emit_val(Opcode::AgentSpawn, vec![v])
+            }
+            // Synchronous evaluation is a faithful reading of these until an
+            // async runtime exists; memoisation is an optimisation only.
+            ExprKind::Memo(_, e) | ExprKind::Await(e) => self.lower_expr(e),
 
-            // ── Discharge / Perform ──
-            ExprKind::Discharge(scrutinee, thresholds) => {
-                let val = self.lower_expr(scrutinee, blk);
-                // Operands: [scrutinee, min_confidence_lo, max_taint]. A missing
-                // confidence means "strictest" (1.0); missing taint means 0.0.
-                // Fail-closed: an unstated threshold never loosens the gate.
-                let t = thresholds
-                    .first()
-                    .map(|(t, _)| t.clone())
-                    .unwrap_or_default();
-                let conf = t.confidence.unwrap_or(1.0);
-                let taint = t.max_taint.unwrap_or(0.0);
-                let func = self.func();
-                func.push_instr(
-                    blk,
-                    Instr::new(
-                        Opcode::Discharge,
-                        None,
-                        vec![val, Operand::Float(conf), Operand::Float(taint)],
-                    ),
-                );
-                for (_thresh, body) in thresholds {
-                    self.lower_block(body, blk);
-                }
-                let func = self.func();
-                func.push_instr(blk, Instr::new(Opcode::DischargeEnd, None, vec![]));
-                Operand::Null
-            }
-
-            ExprKind::Perform(_effect, args, _) => {
-                let mut ops = vec![Operand::String(0)];
-                for a in args {
-                    ops.push(self.lower_expr(a, blk));
-                }
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Perform, Some(dest), ops));
-                Operand::Var(dest)
-            }
-
-            // ── Spawn ──
-            ExprKind::Spawn(expr) => {
-                let val = self.lower_expr(expr, blk);
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::AgentSpawn, Some(dest), vec![val]));
-                Operand::Var(dest)
-            }
-
-            // ── Train / Evolve ──
-            ExprKind::Train(_, body) | ExprKind::Evolve(body) => {
-                self.lower_block(body, blk);
-                Operand::Null
-            }
-
-            // ── Signal ──
-            ExprKind::Signal(_) => {
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::Const, Some(dest), vec![Operand::String(0)]),
-                );
-                Operand::Var(dest)
-            }
-
-            // ── React ──
-            ExprKind::React(_, rules) => {
-                for rule in rules {
-                    self.lower_expr(&rule.condition, blk);
-                    self.lower_block(&rule.body, blk);
-                }
-                Operand::Null
-            }
-
-            // ── Memo / Observe / Infer ──
-            ExprKind::Memo(_, expr) => self.lower_expr(expr, blk),
-            ExprKind::Observe(expr) | ExprKind::Infer(expr) => {
-                let val = self.lower_expr(expr, blk);
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(blk, Instr::new(Opcode::Infer, Some(dest), vec![val]));
-                Operand::Var(dest)
-            }
-
-            // ── Ontology ──
-            ExprKind::Ontology(_, rules) => {
-                for rule in rules {
-                    self.lower_expr(&rule.condition, blk);
-                    self.lower_expr(&rule.require, blk);
-                }
-                Operand::Null
-            }
-
-            // ── Route / Await ──
-            ExprKind::Route(_, expr) | ExprKind::Await(expr) => self.lower_expr(expr, blk),
-
-            // ── Async / Yield ──
-            ExprKind::Async(body) => {
-                self.lower_block(body, blk);
-                Operand::Null
-            }
-            ExprKind::Yield(Some(expr)) => {
-                let val = self.lower_expr(expr, blk);
-                let func = self.func();
-                func.push_instr(blk, Instr::new(Opcode::Const, None, vec![val]));
-                Operand::Null
-            }
-            ExprKind::Yield(None) => Operand::Null,
-
-            // ── Select ──
-            ExprKind::Select(branches) => {
-                for branch in branches {
-                    self.lower_expr(&branch.future, blk);
-                    self.lower_block(&branch.handler, blk);
-                }
-                Operand::Null
-            }
+            // ── everything else: fail closed ──
+            _ => self.unsupported("this expression form", span),
         }
     }
 
-    // ── Control flow helpers ──
+    fn lower_literal(&mut self, lit: &Literal, span: SourceSpan) -> Operand {
+        match lit {
+            Literal::Int(v, _) => match i64::try_from(*v) {
+                Ok(n) => Operand::Int(n),
+                Err(_) => {
+                    self.diag("integer literal does not fit in 64 bits", Some(span));
+                    Operand::Int(0)
+                }
+            },
+            Literal::Float(v) => Operand::Float(*v),
+            Literal::String(s) | Literal::RawString(s) => Operand::String(self.module.intern(s)),
+            Literal::Char(c) => Operand::Int(*c as i64),
+            Literal::Bool(b) => Operand::Bool(*b),
+            Literal::Null => Operand::Null,
+        }
+    }
 
-    /// Resolve an identifier to its local slot and load it.
-    /// Unknown names (globals, builtins resolved later) lower to `Null`.
-    fn lower_ident(&mut self, ident: &Ident, blk: BlockId) -> Operand {
+    fn lower_ident(&mut self, ident: &Ident) -> Operand {
         match self.lookup(&ident.name) {
-            Some(slot) => {
-                let func = self.func();
-                let dest = func.new_var();
-                func.push_instr(
-                    blk,
-                    Instr::new(Opcode::LoadLocal, Some(dest), vec![Operand::Var(slot)]),
+            Some(slot) => self.emit_val(Opcode::LoadLocal, vec![Operand::Var(slot)]),
+            None => {
+                self.diag(
+                    format!("unresolved name `{}`", ident.name),
+                    Some(ident.span),
                 );
-                Operand::Var(dest)
+                Operand::Null
             }
-            None => Operand::Null,
         }
     }
 
-    fn lower_if(&mut self, i: &IfExpr, cur_blk: BlockId) -> Operand {
-        let cond = self.lower_expr(&i.cond, cur_blk);
-        let func = self.func();
-        let then_blk = func.add_block();
-        let else_blk = func.add_block();
-        let merge_blk = func.add_block();
-        let _ = func;
-        {
-            let func = self.func();
-            func.set_terminator(
-                cur_blk,
-                Terminator::Branch {
-                    cond,
-                    then_block: then_blk,
-                    else_block: else_blk,
-                },
-            );
-        }
-        self.lower_block(&i.then_branch, then_blk);
-        self.close_block(then_blk, merge_blk);
-        if let Some(eb) = &i.else_branch {
-            match &**eb {
-                ElseBranch::Block(b) => {
-                    self.lower_block(b, else_blk);
-                    self.close_block(else_blk, merge_blk);
-                }
-                ElseBranch::If(inner) => {
-                    self.lower_if(inner, else_blk);
-                }
-            }
-        } else {
-            self.close_block(else_blk, merge_blk);
-        }
-        let func = self.func();
-        let phi = func.new_var();
-        func.push_instr(merge_blk, Instr::new(Opcode::Phi, Some(phi), vec![]));
-        Operand::Var(phi)
-    }
-
-    fn lower_match(&mut self, m: &MatchExpr, cur_blk: BlockId) -> Operand {
-        let _scrut = self.lower_expr(&m.scrutinee, cur_blk);
-        let func = self.func();
-        let merge_blk = func.add_block();
-        let mut arm_blocks = Vec::new();
-        if let Some(first_arm) = m.arms.first() {
-            let arm_blk = func.add_block();
-            arm_blocks.push(arm_blk);
-            self.lower_expr(&first_arm.body, arm_blk);
-            self.close_block(arm_blk, merge_blk);
-        }
-        let func = self.func();
-        func.set_terminator(cur_blk, Terminator::Jump(arm_blocks[0]));
-        let func = self.func();
-        let phi = func.new_var();
-        func.push_instr(merge_blk, Instr::new(Opcode::Phi, Some(phi), vec![]));
-        Operand::Var(phi)
-    }
-
-    fn lower_loop(&mut self, l: &LoopExpr, cur_blk: BlockId) -> Operand {
-        let func = self.func();
-        let header_blk = func.add_block();
-        let body_blk = func.add_block();
-        func.set_terminator(cur_blk, Terminator::Jump(header_blk));
-        func.set_terminator(header_blk, Terminator::Jump(body_blk));
-        let _ = func;
-        self.lower_block(&l.body, body_blk);
-        let func = self.func();
-        func.set_terminator(body_blk, Terminator::Jump(header_blk));
-        Operand::Null
-    }
-
-    fn lower_while(&mut self, w: &WhileExpr, cur_blk: BlockId) -> Operand {
-        let func = self.func();
-        let header_blk = func.add_block();
-        let body_blk = func.add_block();
-        let exit_blk = func.add_block();
-        func.set_terminator(cur_blk, Terminator::Jump(header_blk));
-        let _ = func;
-        let cond = self.lower_expr(&w.cond, header_blk);
-        {
-            let func = self.func();
-            func.set_terminator(
-                header_blk,
-                Terminator::Branch {
-                    cond,
-                    then_block: body_blk,
-                    else_block: exit_blk,
-                },
-            );
-        }
-        self.lower_block(&w.body, body_blk);
-        let func = self.func();
-        func.set_terminator(body_blk, Terminator::Jump(header_blk));
-        Operand::Null
-    }
-
-    fn lower_for(&mut self, f: &ForExpr, cur_blk: BlockId) -> Operand {
-        let func = self.func();
-        let header_blk = func.add_block();
-        let body_blk = func.add_block();
-        func.set_terminator(cur_blk, Terminator::Jump(header_blk));
-        let _ = func;
-        self.lower_block(&f.body, body_blk);
-        let func = self.func();
-        func.set_terminator(body_blk, Terminator::Jump(header_blk));
-        Operand::Null
-    }
-
-    fn close_block(&mut self, blk: BlockId, merge: BlockId) {
-        let func = self.func();
-        if func.blocks[blk].terminator == Terminator::Halt {
-            func.set_terminator(blk, Terminator::Jump(merge));
-        }
-    }
-
-    fn func(&mut self) -> &mut Function {
-        let fid = self.current_func.unwrap();
-        &mut self.module.functions[fid]
-    }
-
-    fn lower_binary_op(&self, op: BinaryOp) -> Opcode {
+    fn binary_opcode(op: BinaryOp) -> Opcode {
         match op {
             BinaryOp::Add => Opcode::Add,
             BinaryOp::Sub => Opcode::Sub,
@@ -746,21 +504,385 @@ impl Lowerer {
             BinaryOp::GtEq => Opcode::GtEq,
             BinaryOp::And => Opcode::And,
             BinaryOp::Or => Opcode::Or,
-            BinaryOp::BitAnd => Opcode::And,
-            BinaryOp::BitOr => Opcode::Or,
-            BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => Opcode::Const,
+            BinaryOp::BitAnd => Opcode::BitAnd,
+            BinaryOp::BitOr => Opcode::BitOr,
+            BinaryOp::BitXor => Opcode::BitXor,
+            BinaryOp::Shl => Opcode::Shl,
+            BinaryOp::Shr => Opcode::Shr,
         }
     }
 
-    fn lower_literal(&self, lit: &Literal) -> Operand {
-        match lit {
-            Literal::Int(v, _) => Operand::Int(*v as i64),
-            Literal::Float(v) => Operand::Float(*v),
-            Literal::String(_) | Literal::RawString(_) => Operand::String(0),
-            Literal::Char(c) => Operand::Int(*c as i64),
-            Literal::Bool(b) => Operand::Bool(*b),
-            Literal::Null => Operand::Null,
+    /// `a && b` / `a || b` with short-circuit evaluation; the result is a bool.
+    fn lower_short_circuit(&mut self, lhs: &Expr, rhs: &Expr, is_and: bool) -> Operand {
+        let res = self.new_reg();
+        let l = self.lower_expr(lhs);
+        let (eval_rhs, skip, merge) = (self.new_block(), self.new_block(), self.new_block());
+        // `&&`: truthy lhs → evaluate rhs, else false.  `||`: truthy lhs → true, else rhs.
+        let (then_b, else_b) = if is_and {
+            (eval_rhs, skip)
+        } else {
+            (skip, eval_rhs)
+        };
+        self.terminate(Terminator::Branch {
+            cond: l,
+            then_block: then_b,
+            else_block: else_b,
+        });
+        self.switch_to(eval_rhs);
+        let r = self.lower_expr(rhs);
+        let normalised = self.emit_val(
+            if is_and { Opcode::And } else { Opcode::Or },
+            vec![r, Operand::Bool(is_and)],
+        );
+        self.store(res, normalised);
+        self.terminate(Terminator::Jump(merge));
+        self.switch_to(skip);
+        self.store(res, Operand::Bool(!is_and));
+        self.terminate(Terminator::Jump(merge));
+        self.switch_to(merge);
+        Operand::Var(res)
+    }
+
+    fn lower_call(&mut self, callee: &Expr, args: &[Expr], span: SourceSpan) -> Operand {
+        let ExprKind::Ident(id) = &callee.kind else {
+            return self.unsupported("calling a non-identifier callee", span);
+        };
+        if id.name == "print" && self.lookup("print").is_none() {
+            let mut ops = Vec::with_capacity(args.len());
+            for a in args {
+                let v = self.lower_expr(a);
+                ops.push(v);
+            }
+            self.emit(Opcode::Print, None, ops);
+            return Operand::Null;
         }
+        let Some(fid) = self.fn_ids.get(&id.name).copied() else {
+            self.diag(format!("unresolved function `{}`", id.name), Some(id.span));
+            return Operand::Null;
+        };
+        let expected = self.module.functions[fid].params.len();
+        if args.len() != expected {
+            self.diag(
+                format!(
+                    "`{}` takes {} argument(s) but {} were given",
+                    id.name,
+                    expected,
+                    args.len()
+                ),
+                Some(span),
+            );
+            return Operand::Null;
+        }
+        let mut ops = vec![Operand::Func(fid)];
+        for a in args {
+            let v = self.lower_expr(a);
+            ops.push(v);
+        }
+        self.emit_val(Opcode::Call, ops)
+    }
+
+    fn lower_assignment(
+        &mut self,
+        target: &Expr,
+        op: &AssignOp,
+        rhs: &Expr,
+        span: SourceSpan,
+    ) -> Operand {
+        let ExprKind::Ident(id) = &target.kind else {
+            return self.unsupported("assignment to a non-variable", span);
+        };
+        let Some(slot) = self.lookup(&id.name) else {
+            self.diag(
+                format!("assignment to unresolved name `{}`", id.name),
+                Some(id.span),
+            );
+            return Operand::Null;
+        };
+        let value = match op {
+            AssignOp::Eq => self.lower_expr(rhs),
+            compound => {
+                let opcode = match compound {
+                    AssignOp::PlusEq => Opcode::Add,
+                    AssignOp::MinusEq => Opcode::Sub,
+                    AssignOp::StarEq => Opcode::Mul,
+                    AssignOp::SlashEq => Opcode::Div,
+                    AssignOp::PercentEq => Opcode::Rem,
+                    AssignOp::AndEq => Opcode::BitAnd,
+                    AssignOp::OrEq => Opcode::BitOr,
+                    AssignOp::XorEq => Opcode::BitXor,
+                    AssignOp::ShlEq => Opcode::Shl,
+                    AssignOp::ShrEq => Opcode::Shr,
+                    AssignOp::Eq => unreachable!("handled above"),
+                };
+                let cur = self.emit_val(Opcode::LoadLocal, vec![Operand::Var(slot)]);
+                let r = self.lower_expr(rhs);
+                self.emit_val(opcode, vec![cur, r])
+            }
+        };
+        self.store(slot, value);
+        Operand::Null
+    }
+
+    // ── control flow ──
+
+    fn lower_if(&mut self, i: &IfExpr) -> Operand {
+        let res = self.new_reg();
+        let cond = self.lower_expr(&i.cond);
+        let (tb, eb, mb) = (self.new_block(), self.new_block(), self.new_block());
+        self.terminate(Terminator::Branch {
+            cond,
+            then_block: tb,
+            else_block: eb,
+        });
+        self.switch_to(tb);
+        let v = self.lower_block(&i.then_branch);
+        self.store(res, v);
+        self.terminate(Terminator::Jump(mb));
+        self.switch_to(eb);
+        let v = match i.else_branch.as_deref() {
+            None => Operand::Null,
+            Some(ElseBranch::Block(b)) => self.lower_block(b),
+            Some(ElseBranch::If(inner)) => self.lower_if(inner),
+        };
+        self.store(res, v);
+        self.terminate(Terminator::Jump(mb));
+        self.switch_to(mb);
+        Operand::Var(res)
+    }
+
+    fn lower_while(&mut self, w: &WhileExpr) -> Operand {
+        let (header, body, exit) = (self.new_block(), self.new_block(), self.new_block());
+        self.terminate(Terminator::Jump(header));
+        self.switch_to(header);
+        let cond = self.lower_expr(&w.cond);
+        self.terminate(Terminator::Branch {
+            cond,
+            then_block: body,
+            else_block: exit,
+        });
+        self.loops.push(LoopCtx {
+            continue_to: header,
+            break_to: exit,
+            result: None,
+            discharge_depth: self.discharge_depth,
+        });
+        self.switch_to(body);
+        self.lower_block(&w.body);
+        self.terminate(Terminator::Jump(header));
+        self.loops.pop();
+        self.switch_to(exit);
+        Operand::Null
+    }
+
+    fn lower_loop(&mut self, l: &LoopExpr) -> Operand {
+        let res = self.new_reg();
+        self.store(res, Operand::Null);
+        let (body, exit) = (self.new_block(), self.new_block());
+        self.terminate(Terminator::Jump(body));
+        self.loops.push(LoopCtx {
+            continue_to: body,
+            break_to: exit,
+            result: Some(res),
+            discharge_depth: self.discharge_depth,
+        });
+        self.switch_to(body);
+        self.lower_block(&l.body);
+        self.terminate(Terminator::Jump(body));
+        self.loops.pop();
+        self.switch_to(exit);
+        Operand::Var(res)
+    }
+
+    /// `for i in a..b` / `a..=b` only; other iterables are rejected.
+    fn lower_for(&mut self, f: &ForExpr) -> Operand {
+        let ExprKind::Range(start, kind, end) = &f.iter.kind else {
+            return self.unsupported("`for` over anything but a range", f.span);
+        };
+        let PatternKind::Binding(var, None) = &f.pattern.kind else {
+            return self.unsupported("a non-identifier `for` pattern", f.span);
+        };
+        let s = self.lower_expr(start);
+        let e = self.lower_expr(end);
+        let (ctr, end_reg, var_reg) = (self.new_reg(), self.new_reg(), self.new_reg());
+        self.store(ctr, s);
+        self.store(end_reg, e);
+        let (header, body, step, exit) = (
+            self.new_block(),
+            self.new_block(),
+            self.new_block(),
+            self.new_block(),
+        );
+        self.terminate(Terminator::Jump(header));
+        self.switch_to(header);
+        let c = self.emit_val(Opcode::LoadLocal, vec![Operand::Var(ctr)]);
+        let n = self.emit_val(Opcode::LoadLocal, vec![Operand::Var(end_reg)]);
+        let cmp = match kind {
+            RangeKind::Exclusive => Opcode::Lt,
+            RangeKind::Inclusive => Opcode::LtEq,
+        };
+        let cond = self.emit_val(cmp, vec![c, n]);
+        self.terminate(Terminator::Branch {
+            cond,
+            then_block: body,
+            else_block: exit,
+        });
+        self.loops.push(LoopCtx {
+            continue_to: step,
+            break_to: exit,
+            result: None,
+            discharge_depth: self.discharge_depth,
+        });
+        self.switch_to(body);
+        // The loop variable is a per-iteration copy, so assigning to it in the
+        // body cannot disturb the iteration counter.
+        let cur = self.emit_val(Opcode::LoadLocal, vec![Operand::Var(ctr)]);
+        self.store(var_reg, cur);
+        self.scopes.push(HashMap::new());
+        self.bind(&var.name, var_reg);
+        self.lower_block(&f.body);
+        self.scopes.pop();
+        self.terminate(Terminator::Jump(step));
+        self.loops.pop();
+        self.switch_to(step);
+        let c = self.emit_val(Opcode::LoadLocal, vec![Operand::Var(ctr)]);
+        let next = self.emit_val(Opcode::Add, vec![c, Operand::Int(1)]);
+        self.store(ctr, next);
+        self.terminate(Terminator::Jump(header));
+        self.switch_to(exit);
+        Operand::Null
+    }
+
+    fn close_discharges_to(&mut self, target_depth: u32) {
+        let open = self.discharge_depth.saturating_sub(target_depth);
+        for _ in 0..open {
+            self.emit(Opcode::DischargeEnd, None, vec![]);
+        }
+    }
+
+    fn lower_break(&mut self, value: Option<&Expr>, span: SourceSpan) {
+        let Some(ctx) = self.loops.last() else {
+            self.diag("`break` outside of a loop", Some(span));
+            return;
+        };
+        let (target, result, depth) = (ctx.break_to, ctx.result, ctx.discharge_depth);
+        if let Some(e) = value {
+            let v = self.lower_expr(e);
+            match result {
+                Some(r) => self.store(r, v),
+                None => self.diag("`break` with a value is only allowed in `loop`", Some(span)),
+            }
+        }
+        self.close_discharges_to(depth);
+        self.terminate(Terminator::Jump(target));
+    }
+
+    fn lower_continue(&mut self, span: SourceSpan) {
+        let Some(ctx) = self.loops.last() else {
+            self.diag("`continue` outside of a loop", Some(span));
+            return;
+        };
+        let (target, depth) = (ctx.continue_to, ctx.discharge_depth);
+        self.close_discharges_to(depth);
+        self.terminate(Terminator::Jump(target));
+    }
+
+    /// `match` over literal, wildcard and identifier patterns (with guards).
+    /// A non-exhaustive match traps at run time instead of falling through.
+    fn lower_match(&mut self, m: &MatchExpr) -> Operand {
+        let scrut_val = self.lower_expr(&m.scrutinee);
+        let scrut = self.new_reg();
+        self.store(scrut, scrut_val);
+        let res = self.new_reg();
+        let merge = self.new_block();
+        let mut exhaustive = false;
+        for arm in &m.arms {
+            let next = self.new_block();
+            self.scopes.push(HashMap::new());
+            let mut unconditional = true;
+            match &arm.pattern.kind {
+                PatternKind::Wildcard => {}
+                PatternKind::Binding(id, None) => {
+                    let copy = self.emit_val(Opcode::LoadLocal, vec![Operand::Var(scrut)]);
+                    let slot = self.new_reg();
+                    self.store(slot, copy);
+                    self.bind(&id.name, slot);
+                }
+                PatternKind::Lit(lit) => {
+                    let lit_op = self.lower_literal(lit, arm.span);
+                    let s = self.emit_val(Opcode::LoadLocal, vec![Operand::Var(scrut)]);
+                    let eq = self.emit_val(Opcode::Eq, vec![s, lit_op]);
+                    let body = self.new_block();
+                    self.terminate(Terminator::Branch {
+                        cond: eq,
+                        then_block: body,
+                        else_block: next,
+                    });
+                    self.switch_to(body);
+                    unconditional = false;
+                }
+                _ => {
+                    self.diag(
+                        "this match pattern is not supported yet (use literals, `_` or a name)",
+                        Some(arm.span),
+                    );
+                }
+            }
+            if let Some(g) = &arm.guard {
+                let gv = self.lower_expr(g);
+                let body = self.new_block();
+                self.terminate(Terminator::Branch {
+                    cond: gv,
+                    then_block: body,
+                    else_block: next,
+                });
+                self.switch_to(body);
+                unconditional = false;
+            }
+            let v = self.lower_expr(&arm.body);
+            self.store(res, v);
+            self.terminate(Terminator::Jump(merge));
+            self.scopes.pop();
+            self.switch_to(next);
+            if unconditional {
+                exhaustive = true;
+                break;
+            }
+        }
+        if !exhaustive {
+            let msg = self.module.intern("non-exhaustive match: no arm matched");
+            self.emit(Opcode::Trap, None, vec![Operand::String(msg)]);
+            self.terminate(Terminator::Halt);
+        }
+        self.switch_to(merge);
+        Operand::Var(res)
+    }
+
+    fn lower_discharge(
+        &mut self,
+        scrutinee: &Expr,
+        arms: &[(Threshold, BlockExpr)],
+        span: SourceSpan,
+    ) -> Operand {
+        if arms.len() != 1 {
+            return self.unsupported("`discharge` with several arms", span);
+        }
+        let val = self.lower_expr(scrutinee);
+        let (thr, body) = &arms[0];
+        // Fail closed: an unstated threshold only ever tightens the gate.
+        let conf = thr.confidence.unwrap_or(1.0);
+        let taint = thr.max_taint.unwrap_or(0.0);
+        self.emit(
+            Opcode::Discharge,
+            None,
+            vec![val, Operand::Float(conf), Operand::Float(taint)],
+        );
+        self.discharge_depth += 1;
+        let v = self.lower_block(body);
+        self.discharge_depth -= 1;
+        if !self.terminated {
+            self.emit(Opcode::DischargeEnd, None, vec![]);
+        }
+        v
     }
 
     fn convert_type(&self, ty: &crate::ast::Type) -> IrType {

@@ -198,8 +198,24 @@ Findings, all reproducible; fixes marked ✅ are in this patch.
 26. ☐ **`typeck::infer_types` returns its input unchanged; `nameres` is a facade** (`let` binds `""`, errors dropped,
     single pass); **`contractck` has one rule** (a `discharge` needs an arm) and no stratum/charter logic. See Arc42 §8.4.
 27. ✅ Unused dependencies removed from every manifest (cargo's `unused_dependencies` lint); `lsp-types` no longer
-    built twice (0.94 via `tower-lsp` and 0.95 directly). MSRV is declared once and inherited by every crate.
-Test counts (this branch, CP3): **206** (seedc 16 lib + 14 front-end · seedc-cli 7 unit + 6 smoke · seeddbg 4 · seedfmt 2 · seedvm 157), from a baseline of 17
+    built twice (0.94 via `tower-lsp` and 0.95 directly). MSRV is declared once and inherited by every crate.28. ✅ **Lowering was unsound for control flow** (found while implementing ADR-020): the entry block's terminator was overwritten by
+    `Return`, code after an `if` landed in the pre-`if` block, `x = 5` always stored to register 0, `^ << >>` lowered to `Const`,
+    `match` lowered only its first arm, calls had no callee operand, every string was `String(0)`. Lowering rewritten as a
+    cursor-based builder; unsupported constructs are compile errors.
+29. ✅ **Lexer bugs:** `<<`/`>>` lexed as `<=`/`>=`, `<<=` as `<<`; `..` lexed as `..=` and the reverse; `0..5` lexed as the float
+    `0.` then `.`; `&=` and `|=` never lexed.
+30. ✅ **Parser gaps:** assignment, compound assignment and ranges were not parsed at all; bitwise operators missing from the
+    precedence table; `continue` was a keyword with no parse rule; `break` could not carry a value.
+31. ✅ **`nameres` was a facade:** `let` bound `""`, agent methods were never resolved, forward references failed, and a made-up
+    "affine" rule was applied (and ignored) to ordinary variables. Rewritten (two-pass, pattern binding, builtins).
+32. ✅ **IR verifier** was per-block and ignored `DischargeEnd`; now a dataflow (definite assignment, discharge depth at joins,
+    operand/arity/range checks). **`.aslb` is verified before execution.**
+33. ✅ **`discharge` authority leaked across calls/returns** (one global flag): depth is now per frame.
+34. ✅ `binary.rs` used `size_of::<Header>()` (in-memory layout) as the wire header length; now an explicit pinned constant.
+35. ✅ Blanket `allow(unused)` / `allow(dead_code)` removed from `seedc`; the 9 warnings they hid are fixed or explicitly annotated.
+36. ☐ **Still no type checking** (`infer_types` is a no-op) — the largest remaining soundness gap; CP5 item 1.
+
+Test counts (this branch, CP4): **252** (seedc 31 lib + 14 front-end · seedvm 163 lib + 23 end-to-end · seedc-cli 7 unit + 8 smoke · seeddbg 4 · seedfmt 2), from a baseline of 17
 (one of which hung). `protocols/*` previously had **0** tests; `a2a.rs` now has 11 and `mcp.rs` 7.
 
 ---
@@ -231,7 +247,7 @@ Test counts (this branch, CP3): **206** (seedc 16 lib + 14 front-end · seedc-cl
 * **ADR-026 (new)** *Signed, verified capability tokens; delegation re-validated at issuance* — never trust a
   token's claimed lineage, re-derive that it narrows its parent.
 * **ADR-020 (proposed)** *IR execution model:* stack-IR vs SSA — decide and document.
-  **CP3 recommendation: register frames** (rationale and acceptance test in Arc42 draft §7).
+  **ACCEPTED and implemented in CP4: register frames** (Arc42 draft §7).
 * **ADR-027 (new, CP2)** Seed documents and typed sections coexist; parser accepts the spec's `discharge … with` / `perform … requires` forms.
 * **ADR-028 (new, CP2)** Discharge gates fail closed on the lower confidence bound.
 * **ADR-029 (new, CP2)** Statement classification by lookahead; reserved core keywords, contextual domain keywords.

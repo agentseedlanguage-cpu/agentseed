@@ -2,8 +2,6 @@
 //!
 //! Pipeline: source → tokens → CST → typed AST → IR → binary.
 
-#![allow(unused)]
-#![allow(dead_code)]
 pub mod ast;
 pub mod binary;
 pub mod ir;
@@ -31,6 +29,10 @@ pub enum CompileError {
     #[error("type error")]
     #[diagnostic(help("The type checker found inconsistent types."))]
     Type(#[from] sema::TypeError),
+
+    #[error("unsupported or unresolved construct")]
+    #[diagnostic(help("{0}"))]
+    Lowering(String),
 
     #[error("IR verification error")]
     #[diagnostic(help("The intermediate representation failed a safety check."))]
@@ -63,7 +65,15 @@ pub fn compile(source: &str) -> Result<Vec<u8>, CompileError> {
     std::fs::write("ast_dump.txt", format!("{:#?}", &cst)).ok();
 
     let typed = sema::check(cst)?;
-    let ir_mod = lowering::lower(&typed);
+    let ir_mod = lowering::lower_checked(&typed).map_err(|diags| {
+        CompileError::Lowering(
+            diags
+                .iter()
+                .map(|d| d.message.as_str())
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    })?;
     ir::verify(&ir_mod)?;
     let binary = binary::serialize(&ir_mod)?;
     Ok(binary)
