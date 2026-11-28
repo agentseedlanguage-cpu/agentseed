@@ -1,0 +1,47 @@
+{
+  "name": "intellica-web",
+  "private": true,
+  "type": "module",
+  "description": "Intellica web system: shared shell (kit), company home, product site template, tools and arc42.",
+  "scripts": {
+    "dev": "node tools/serve.mjs site 8080",
+    "dev:verichain": "node tools/serve.mjs products/verichain/site 8081",
+    "dev:vericrypt": "node tools/serve.mjs products/vericrypt/site 8082",
+    "dev:erp": "node tools/serve.mjs products/sovereign-erp/site 8083",
+    "dev:omc": "node tools/serve.mjs products/omc/site 8084",
+    "check": "node tools/check.mjs --all && node tools/check-links.mjs && node tools/check-cyber-claims.mjs && node tools/check-cyber-academy.mjs && node tools/check-arch-academy.mjs && node tools/build-ai-business-academy.mjs --check",
+    "test": "node tools/test-markdown.mjs && node tools/test-board.mjs && node tools/test-board-api.mjs && node tools/test-cert-api.mjs && node tools/test-pay-api.mjs && node tools/test-code.mjs && node tools/test-level.mjs && node tools/test-agent.mjs && node tools/test-deploy-lib.mjs && node tools/test-cyber.mjs && node tools/test-cyber-academy.mjs && node tools/test-foundations.mjs",
+    "sync": "node tools/build-training.mjs && node tools/build-catalog.mjs && node tools/build-cyber-academy.mjs && node tools/build-arch-academy.mjs && node tools/build-ai-business-academy.mjs && node tools/build-consulting.mjs && node tools/build-industries.mjs && node tools/build-course.mjs && node tools/sync-kit.mjs && node tools/prerender.mjs && node tools/manifest.mjs && node tools/assemble.mjs",
+    "scaffold": "node tools/new-product.mjs",
+    "legacy": "node tools/import-legacy.mjs",
+    "gate": "npm run test && npm run sync && npm run check",
+    "setup": "node tools/doctor.mjs && npm install && npx playwright install --with-deps chromium",
+    "test:browser": "node tools/browser-test.mjs",
+    "verify": "npm run gate && npm run test:browser",
+    "dev:agentseed": "node tools/serve.mjs products/agentseed/site 8085",
+    "manifest": "node tools/manifest.mjs",
+    "training": "node tools/build-training.mjs && node tools/build-catalog.mjs && node tools/build-cyber-academy.mjs && node tools/build-arch-academy.mjs && node tools/build-ai-business-academy.mjs",
+    "catalog": "node tools/build-catalog.mjs",
+    "deploy": "node tools/deploy.mjs",
+    "course": "node tools/build-course.mjs",
+    "course:check": "node tools/course-check.mjs",
+    "course:code": "node tools/code.mjs",
+    "code": "node tools/code.mjs",
+    "course:video": "node tools/export-lesson-video.mjs",
+    "example:pack": "python3 tools/pack-example.py",
+    "example:test": "cd training-material/doubles-to-go/app && npm test",
+    "fonts": "node tools/install-fonts.mjs",
+    "assemble": "node tools/assemble.mjs",
+    "deploy:where": "npx --yes wrangler@4 pages project list",
+    "consulting": "node tools/build-consulting.mjs",
+    "industries": "node tools/build-industries.mjs",
+    "cyber-academy": "node tools/build-cyber-academy.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  },
+  "version": "0.10.0"
+}

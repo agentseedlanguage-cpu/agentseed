@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { parseDomainProject, sameRelease, gitBehind } from './deploy-lib.mjs';
+let f = 0; const t = (n, fn) => { try { fn(); console.log('ok  ' + n); } catch (e) { f++; console.log('FAIL ' + n + ': ' + e.message); } };
+t('domain project parsed', () => assert.equal(parseDomainProject('│ intellica-web │ meeting-mind.com, x.pages.dev │ 1d │'), 'intellica-web'));
+t('domain project absent', () => assert.equal(parseDomainProject('│ other │ foo.pages.dev │'), null));
+t('same root is ok', () => assert.equal(sameRelease('{"root":"abc"}', '{"root":"abc"}').ok, true));
+t('different root fails', () => assert.equal(sameRelease('{"root":"old"}', '{"root":"abc"}').ok, false));
+t('html page fails', () => assert.equal(sameRelease('<html>', '{"root":"abc"}').ok, false));
+t('missing local root fails', () => assert.equal(sameRelease('{"root":"a"}', '{}').ok, false));
+t('behind blocks', () => assert.equal(gitBehind((a) => ({ status: 0, stdout: a[0] === 'rev-list' ? '3\n' : '' })).ok, false));
+t('up to date passes', () => assert.equal(gitBehind((a) => ({ status: 0, stdout: a[0] === 'rev-list' ? '0\n' : '' })).ok, true));
+t('offline does not block', () => assert.equal(gitBehind(() => ({ status: 1, stdout: '' })).ok, true));
+if (f) { console.log(f + ' failed'); process.exit(1); } console.log('deploy-lib: all passed');
